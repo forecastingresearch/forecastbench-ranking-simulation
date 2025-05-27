@@ -14,7 +14,7 @@ This project currently compares three ranking methods:
 The simulation tests how robust these rankings are across simulations.
 
 ## Project Structure
-
+```
 ranking-simulation/
 ├── src/                    # Main source code
 │   └── ranking_sim.py      # Core simulation functions
@@ -27,6 +27,7 @@ ranking-simulation/
 │   ├── processed/          # Processed data
 │   └── results/            # Simulation outputs
 └── run_simulation.py       # Main script to run simulations
+```
 
 ## Usage
 
