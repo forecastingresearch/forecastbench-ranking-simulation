@@ -1,6 +1,6 @@
 # Ranking Simulation
 
-A simulation environment for evaluating different ranking methods for `ForecastingBench`.
+A simulation environment for evaluating different ranking methods for `ForecastBench`.
 
 ## Overview
 
