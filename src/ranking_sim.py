@@ -62,7 +62,7 @@ def rank_by_brier(df):
     model_scores.rename(columns={"brier_score": "avg_brier"}, inplace=True)
 
     # Rank models (lower Brier score is better)
-    model_scores["rank"] = model_scores["avg_brier"].rank(ascending=True)
+    model_scores["rank"] = model_scores["avg_brier"].rank(ascending=True, method="min")
     model_scores = model_scores.sort_values(by="rank")
 
     return model_scores
@@ -98,7 +98,7 @@ def rank_by_bss(df, ref_model="Always 0.5"):
     model_scores.rename(columns={"bss": "avg_bss"}, inplace=True)
 
     # Rank by BSS (higher is better)
-    model_scores["rank"] = model_scores["avg_bss"].rank(ascending=False)
+    model_scores["rank"] = model_scores["avg_bss"].rank(ascending=False, method="min")
     model_scores = model_scores.sort_values(by="rank").reset_index(drop=True)
 
     return model_scores
@@ -119,7 +119,9 @@ def rank_by_peer_score(df):
     # Average peer score per model
     model_scores = df[["model", "peer_score"]].groupby("model").mean().reset_index()
     model_scores.rename(columns={"peer_score": "avg_peer_score"}, inplace=True)
-    model_scores["rank"] = model_scores["avg_peer_score"].rank(ascending=False)
+    model_scores["rank"] = model_scores["avg_peer_score"].rank(
+        ascending=False, method="min"
+    )
     model_scores = model_scores.sort_values(by="rank")
 
     return model_scores
@@ -149,9 +151,10 @@ def spearman_correlation(df_true_ranking, df_sim_ranking):
 def top_k_retention(df_true_ranking, df_sim_ranking, k=20):
     """Calculate percentage of true top-k models that remain in simulated top-k"""
 
-    # Get top k models from true & simulated ranking
-    true_top_k = set(df_true_ranking.nsmallest(k, "rank_true")["model"])
-    sim_top_k = set(df_sim_ranking.nsmallest(k, "rank_sim")["model"])
+    # Get all models with rank <= k (handles ties properly)
+    # Note that there may be more than k such models if there are ties
+    true_top_k = set(df_true_ranking[df_true_ranking["rank_true"] <= k]["model"])
+    sim_top_k = set(df_sim_ranking[df_sim_ranking["rank_sim"] <= k]["model"])
 
     # Calculate retention rate
     true_top_k_in_sim = true_top_k & sim_top_k
@@ -451,7 +454,7 @@ def combine_rankings(
     else:
         ascending = False
     df_combined["rank"] = df_combined[f"{metric_name}_weighted"].rank(
-        ascending=ascending
+        ascending=ascending, method="min"
     )
 
     # Prepare output
