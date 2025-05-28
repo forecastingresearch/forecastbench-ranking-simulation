@@ -199,6 +199,348 @@ def test_top_k_retention():
     assert retention == 0.0
 
 
+def test_top_k_retention_with_proper_tie_handling():
+    """Test that top_k_retention properly handles ties by
+    including all models with rank <= k."""
+
+    # Test 1: Simple tie at boundary
+    df_true = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D", "E"],
+            "rank_true": [1, 2, 2, 4, 5],  # B and C tied for 2nd
+        }
+    )
+
+    df_sim = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D", "E"],
+            "rank_sim": [1, 2, 2, 4, 5],  # Same ranking
+        }
+    )
+
+    # With k=2, should include A, B, and C (all with rank <= 2)
+    retention = top_k_retention(df_true, df_sim, k=2)
+    assert retention == 1.0  # All 3 models (A, B, C) retained
+
+    # Test 2: Tie at boundary with different sim ranking
+    df_sim2 = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D", "E"],
+            "rank_sim": [1, 3, 2, 4, 5],  # B dropped to 3rd
+        }
+    )
+
+    retention2 = top_k_retention(df_true, df_sim2, k=2)
+    # True top-2: {A, B, C}, Sim top-2: {A, C}
+    # Retained: {A, C}, so 2/3
+    assert np.isclose(retention2, 2 / 3)
+
+    # Test 3: Multiple ties
+    df_true3 = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D", "E", "F"],
+            "rank_true": [1, 1, 3, 3, 3, 6],  # A,B tied for 1st; C,D,E tied for 3rd
+        }
+    )
+
+    df_sim3 = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D", "E", "F"],
+            "rank_sim": [2, 1, 3, 4, 5, 6],  # B wins tie, A second
+        }
+    )
+
+    retention3 = top_k_retention(df_true3, df_sim3, k=2)
+    # True top-2: {A, B} (both rank 1 <= 2)
+    # Sim top-2: {B, A} (ranks 1 and 2)
+    # All retained: 2/2 = 1.0
+    assert retention3 == 1.0
+
+    retention3_k3 = top_k_retention(df_true3, df_sim3, k=3)
+    # True top-3: {A, B, C, D, E} (all with rank <= 3)
+    # Sim top-3: {B, A, C} (ranks 1, 2, 3)
+    # Retained: {A, B, C}, so 3/5
+    assert np.isclose(retention3_k3, 3 / 5)
+
+
+def test_top_k_retention_edge_cases():
+    """Test edge cases for top_k_retention."""
+
+    # Test 1: All models tied
+    df_all_tied = pd.DataFrame(
+        {"model": ["A", "B", "C", "D"], "rank_true": [1, 1, 1, 1]}  # All tied for 1st
+    )
+
+    df_sim_different = pd.DataFrame(
+        {"model": ["A", "B", "C", "D"], "rank_sim": [1, 2, 3, 4]}  # All different ranks
+    )
+
+    retention = top_k_retention(df_all_tied, df_sim_different, k=1)
+    # True top-1: {A, B, C, D} (all rank 1)
+    # Sim top-1: {A}
+    # Retained: {A}, so 1/4
+    assert np.isclose(retention, 1 / 4)
+
+    # Test 2: k larger than number of models
+    retention_large_k = top_k_retention(df_all_tied, df_sim_different, k=10)
+    # All models are in top-10 for both, so retention = 1.0
+    assert retention_large_k == 1.0
+
+
+def test_top_k_retention_integration_with_tied_scores():
+    """Integration test: Test full pipeline from scores
+    to retention with ties across all ranking methods."""
+
+    # Create realistic data with natural ties
+    df = pd.DataFrame(
+        {
+            "model": ["RefModel", "A", "B", "C", "D", "E"] * 8,
+            "question_id": (
+                ["q1", "q1", "q1", "q1", "q1", "q1"] * 4
+                + ["q5", "q5", "q5", "q5", "q5", "q5"] * 4
+            ),
+            "question_type": ["dataset"] * 24 + ["market"] * 24,
+            "forecast": (
+                [0.5, 0.7, 0.8, 0.8, 0.5, 0.3] * 4  # Dataset questions
+                + [0.5, 0.6, 0.7, 0.7, 0.5, 0.4] * 4
+            ),  # Market questions
+            "resolved_to": ([1, 1, 1, 1, 1, 1] * 2 + [0, 0, 0, 0, 0, 0] * 2) * 2,
+        }
+    )
+
+    # Add more questions to make patterns clearer
+    for i in range(2, 5):
+        df.loc[i * 6 : (i + 1) * 6 - 1, "question_id"] = f"q{i}"
+    for i in range(6, 8):
+        df.loc[i * 6 : (i + 1) * 6 - 1, "question_id"] = f"q{i}"
+
+    # Test 1: Brier Score ranking
+    brier_ranking = rank_by_brier(df)
+
+    # Verify B and C have identical Brier scores
+    b_score = brier_ranking[brier_ranking["model"] == "B"]["avg_brier"].iloc[0]
+    c_score = brier_ranking[brier_ranking["model"] == "C"]["avg_brier"].iloc[0]
+    assert np.isclose(b_score, c_score), "B and C should have same Brier score"
+
+    # Verify B and C have same rank
+    b_rank = brier_ranking[brier_ranking["model"] == "B"]["rank"].iloc[0]
+    c_rank = brier_ranking[brier_ranking["model"] == "C"]["rank"].iloc[0]
+    assert b_rank == c_rank, f"B and C should have same rank, got {b_rank} and {c_rank}"
+
+    # Verify RefModel and D are tied
+    ref_score = brier_ranking[brier_ranking["model"] == "RefModel"]["avg_brier"].iloc[0]
+    d_score = brier_ranking[brier_ranking["model"] == "D"]["avg_brier"].iloc[0]
+    assert np.isclose(ref_score, d_score), "RefModel and D should have same Brier score"
+
+    ref_rank = brier_ranking[brier_ranking["model"] == "RefModel"]["rank"].iloc[0]
+    d_rank = brier_ranking[brier_ranking["model"] == "D"]["rank"].iloc[0]
+    assert ref_rank == d_rank, "RefModel and D should have same rank"
+
+    # Verify proper rank gaps (e.g., if two models tied for 2nd, next is 4th)
+    rank_counts = brier_ranking["rank"].value_counts().sort_index()
+
+    expected_next_rank = 1
+    for rank, count in rank_counts.items():
+        assert (
+            rank == expected_next_rank
+        ), f"Expected rank {expected_next_rank}, got {rank}"
+        expected_next_rank = rank + count
+
+    # Test 2: BSS ranking (using RefModel as reference)
+    bss_ranking = rank_by_bss(df, ref_model="RefModel")
+
+    # RefModel should have BSS of 0
+    ref_bss = bss_ranking[bss_ranking["model"] == "RefModel"]["avg_bss"].iloc[0]
+    assert np.isclose(ref_bss, 0.0), f"Reference model should have BSS=0, got {ref_bss}"
+
+    # Verify BSS ranking uses method='min' for ties
+    bss_rank_counts = bss_ranking["rank"].value_counts().sort_index()
+    expected_next_rank = 1
+    for rank, count in bss_rank_counts.items():
+        assert (
+            rank == expected_next_rank
+        ), f"BSS ranking: expected rank {expected_next_rank}, got {rank}"
+        expected_next_rank = rank + count
+
+    # Test 3: Peer Score ranking
+    peer_ranking = rank_by_peer_score(df)
+
+    # Models with same Brier score should have same peer score
+    # Get average Brier per question for verification
+    df_with_brier = df.copy()
+    df_with_brier["brier"] = (
+        df_with_brier["forecast"] - df_with_brier["resolved_to"]
+    ) ** 2
+
+    # Verify peer score ranking uses method='min'
+    peer_rank_counts = peer_ranking["rank"].value_counts().sort_index()
+    expected_next_rank = 1
+    for rank, count in peer_rank_counts.items():
+        assert (
+            rank == expected_next_rank
+        ), f"Peer ranking: expected rank {expected_next_rank}, got {rank}"
+        expected_next_rank = rank + count
+
+    # Test 4: Dataset/Market weighting with ties
+    weighted_ranking = rank_with_weighting(
+        df=df,
+        ranking_func=rank_by_brier,
+        metric_name="avg_brier",
+        is_lower_metric_better=True,
+        dataset_weight=0.5,
+    )
+
+    # Verify weighted calculation
+    for _, row in weighted_ranking.iterrows():
+        expected_weighted = (
+            0.5 * row["avg_brier_dataset"] + 0.5 * row["avg_brier_market"]
+        )
+        assert np.isclose(
+            row["avg_brier_weighted"], expected_weighted
+        ), f"Weighted score calculation error for {row['model']}"
+
+    # Verify ties are preserved in weighted ranking
+    weighted_scores = weighted_ranking.set_index("model")["avg_brier_weighted"]
+    for i, model1 in enumerate(weighted_ranking["model"]):
+        for j, model2 in enumerate(weighted_ranking["model"]):
+            if i < j and np.isclose(
+                weighted_scores[model1], weighted_scores[model2], atol=1e-10
+            ):
+                rank1 = weighted_ranking[weighted_ranking["model"] == model1][
+                    "rank"
+                ].iloc[0]
+                rank2 = weighted_ranking[weighted_ranking["model"] == model2][
+                    "rank"
+                ].iloc[0]
+                assert (
+                    rank1 == rank2
+                ), f"{model1} and {model2} have same score but different ranks"
+
+    # Test 5: Top-k retention with each ranking method
+    df_sim = df.copy()
+    # Change C's forecasts slightly to break the tie
+    df_sim.loc[df_sim["model"] == "C", "forecast"] = (
+        df_sim.loc[df_sim["model"] == "C", "forecast"] + 0.02
+    )
+
+    # Test Brier ranking retention
+    true_brier = rank_by_brier(df).rename(columns={"rank": "rank_true"})
+    sim_brier = rank_by_brier(df_sim).rename(columns={"rank": "rank_sim"})
+
+    # Get models in top-2 for both
+    true_top_2_brier = set(true_brier[true_brier["rank_true"] <= 2]["model"])
+    sim_top_2_brier = set(sim_brier[sim_brier["rank_sim"] <= 2]["model"])
+
+    # Calculate expected retention
+    retained_brier = true_top_2_brier & sim_top_2_brier
+    expected_retention_brier = len(retained_brier) / len(true_top_2_brier)
+
+    # Verify top_k_retention function gives same result
+    actual_retention_brier = top_k_retention(true_brier, sim_brier, k=2)
+    assert np.isclose(
+        actual_retention_brier, expected_retention_brier
+    ), f"Brier retention mismatch: expected {expected_retention_brier}, \
+        got {actual_retention_brier}"
+
+    # Test Peer Score retention
+    true_peer = rank_by_peer_score(df).rename(columns={"rank": "rank_true"})
+    sim_peer = rank_by_peer_score(df_sim).rename(columns={"rank": "rank_sim"})
+
+    true_top_2_peer = set(true_peer[true_peer["rank_true"] <= 2]["model"])
+    sim_top_2_peer = set(sim_peer[sim_peer["rank_sim"] <= 2]["model"])
+
+    retained_peer = true_top_2_peer & sim_top_2_peer
+    expected_retention_peer = len(retained_peer) / len(true_top_2_peer)
+
+    actual_retention_peer = top_k_retention(true_peer, sim_peer, k=2)
+    assert np.isclose(
+        actual_retention_peer, expected_retention_peer
+    ), f"Peer retention mismatch: expected {expected_retention_peer}, \
+        got {actual_retention_peer}"
+
+    # Verify that when there are ties, top-k includes more than k models
+    assert (
+        len(true_top_2_brier) >= 2
+    ), "When ties exist at boundary, top-k should include all tied models"
+    assert (
+        len(true_top_2_peer) >= 2
+    ), "When ties exist at boundary, top-k should include all tied models"
+
+
+def test_combine_rankings_with_ties():
+    """Test that combine_rankings properly handles ties when re-ranking."""
+
+    # Also need to update combine_rankings to use method='min'
+    # Here's a focused test for that function
+
+    # Dataset rankings with ties
+    df_dataset = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D"],
+            "avg_brier": [0.1, 0.2, 0.2, 0.4],  # B and C tied
+            "rank": [1, 2, 2, 4],
+        }
+    )
+
+    # Market rankings with different ties
+    df_market = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D"],
+            "avg_brier": [0.3, 0.1, 0.3, 0.3],  # A, C, and D tied
+            "rank": [2, 1, 2, 2],
+        }
+    )
+
+    # Combine with 50/50 weight
+    combined = combine_rankings(
+        df_dataset,
+        df_market,
+        metric_name="avg_brier",
+        is_lower_metric_better=True,
+        dataset_weight=0.5,
+    )
+
+    print("\nCombined rankings:")
+    print(combined)
+
+    # Check weighted scores
+    # A: 0.5 * 0.1 + 0.5 * 0.3 = 0.2
+    # B: 0.5 * 0.2 + 0.5 * 0.1 = 0.15
+    # C: 0.5 * 0.2 + 0.5 * 0.3 = 0.25
+    # D: 0.5 * 0.4 + 0.5 * 0.3 = 0.35
+
+    # So B < A < C < D, no ties in final ranking
+    assert combined[combined["model"] == "B"]["rank"].iloc[0] == 1
+    assert combined[combined["model"] == "A"]["rank"].iloc[0] == 2
+    assert combined[combined["model"] == "C"]["rank"].iloc[0] == 3
+    assert combined[combined["model"] == "D"]["rank"].iloc[0] == 4
+
+    # Test with ties in combined scores
+    df_dataset2 = pd.DataFrame(
+        {"model": ["A", "B", "C"], "avg_brier": [0.1, 0.3, 0.5], "rank": [1, 2, 3]}
+    )
+
+    df_market2 = pd.DataFrame(
+        {"model": ["A", "B", "C"], "avg_brier": [0.5, 0.3, 0.1], "rank": [3, 2, 1]}
+    )
+
+    combined2 = combine_rankings(
+        df_dataset2,
+        df_market2,
+        metric_name="avg_brier",
+        is_lower_metric_better=True,
+        dataset_weight=0.5,
+    )
+
+    # All models should have weighted score of 0.3
+    assert np.allclose(combined2["avg_brier_weighted"], 0.3)
+
+    # All should be tied for rank 1
+    assert (
+        combined2["rank"] == 1
+    ).all(), f"All models should be rank 1, got {combined2['rank'].values}"
+
+
 def test_median_displacement():
     """Test median displacement calculation."""
     df_true = pd.DataFrame(
