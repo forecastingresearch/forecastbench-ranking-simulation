@@ -11,6 +11,7 @@ from ranking_sim import (
     combine_rankings,
     evaluate_ranking_methods,
     median_displacement,
+    process_raw_data,
     rank_by_brier,
     rank_by_bss,
     rank_by_peer_score,
@@ -1550,3 +1551,143 @@ def test_simulate_round_based_perfect_ranking_multiple_simulations():
         assert (
             comparison["rank_true"] == comparison["rank_sim"]
         ).all(), f"Rankings don't match in simulation {sim}:\n{comparison}"
+
+
+@pytest.mark.slow
+def test_simulation_regression_results():
+    """
+    Regression test to ensure simulation results remain consistent.
+
+    These are NOT ground truth values, but results from a known good run
+    that we want to preserve. If these tests fail, it means the simulation
+    behavior has changed and we need to verify if the change is intentional.
+
+    Expected values generated on 2025-05-28 with:
+    - numpy seed: 20250527
+    - n_simulations: 1000
+    - n_questions_per_model: 125
+    - dataset_weight: 0.5
+    - simulation_method: "random_sampling"
+    - ref_model = "GPT-4 (zero shot)"
+    """
+    np.random.seed(20250527)
+
+    # Load and process data
+    df = process_raw_data("../data/raw/leaderboard_human.pkl")
+
+    # Define methods
+    ranking_methods = {
+        "Brier": (rank_by_brier, "avg_brier", True, {}),
+        "BSS": (rank_by_bss, "avg_bss", False, {"ref_model": "GPT-4 (zero shot)"}),
+        "Peer Score": (rank_by_peer_score, "avg_peer_score", False, {}),
+    }
+
+    evaluation_metrics = {
+        "Spearman": (spearman_correlation, {}),
+        "Top-20 Retention": (top_k_retention, {"k": 20}),
+    }
+
+    # Run simulation
+    results = evaluate_ranking_methods(
+        df=df,
+        ranking_methods=ranking_methods,
+        evaluation_metrics=evaluation_metrics,
+        simulation_func=simulate_random_sampling,
+        simulation_kwargs={"n_questions_per_model": 125},
+        n_simulations=1000,
+        dataset_weight=0.5,
+        ref_model="GPT-4 (zero shot)",
+    )
+
+    # Expected results (from known good run)
+    expected_results = {
+        "Brier": {"Spearman": 0.734675, "Top-20 Retention": 0.52990},
+        "BSS": {"Spearman": 0.726049, "Top-20 Retention": 0.61390},
+        "Peer Score": {"Spearman": 0.818684, "Top-20 Retention": 0.61525},
+    }
+
+    # Check results
+    summary = results.groupby("method")[["Spearman", "Top-20 Retention"]].mean()
+
+    for method, expected in expected_results.items():
+        for metric, expected_value in expected.items():
+            actual_value = summary.loc[method, metric]
+
+            # Use reasonable tolerance for random simulations
+            assert np.isclose(
+                actual_value, expected_value, atol=0.00001
+            ), f"{method} {metric}: expected {expected_value:.6f}, \
+                got {actual_value:.6f}"
+
+
+@pytest.mark.slow
+def test_simulation_regression_round_based_results():
+    """
+    Regression test to ensure simulation results remain consistent.
+
+    These are NOT ground truth values, but results from a known good run
+    that we want to preserve. If these tests fail, it means the simulation
+    behavior has changed and we need to verify if the change is intentional.
+
+    Expected values generated on 2025-05-28 with:
+    - numpy seed: 20250527
+    - n_simulations: 1000
+    - n_rounds: 15
+    - questions_per_round = 25
+    - models_per_round_mean = 40
+    - dataset_weight: 0.5
+    - simulation_method: "round_based"
+    - ref_model = "GPT-4 (zero shot)"
+    """
+    np.random.seed(20250527)
+
+    # Load and process data
+    df = process_raw_data("../data/raw/leaderboard_human.pkl")
+
+    # Define methods
+    ranking_methods = {
+        "Brier": (rank_by_brier, "avg_brier", True, {}),
+        "BSS": (rank_by_bss, "avg_bss", False, {"ref_model": "GPT-4 (zero shot)"}),
+        "Peer Score": (rank_by_peer_score, "avg_peer_score", False, {}),
+    }
+
+    evaluation_metrics = {
+        "Spearman": (spearman_correlation, {}),
+        "Top-20 Retention": (top_k_retention, {"k": 20}),
+    }
+
+    # Run simulation
+    results = evaluate_ranking_methods(
+        df=df,
+        ranking_methods=ranking_methods,
+        evaluation_metrics=evaluation_metrics,
+        simulation_func=simulate_round_based,
+        simulation_kwargs={
+            "n_rounds": 15,
+            "questions_per_round": 25,
+            "models_per_round_mean": 40,
+        },
+        n_simulations=1000,
+        dataset_weight=0.5,
+        ref_model="GPT-4 (zero shot)",
+    )
+
+    # Expected results (from known good run)
+    expected_results = {
+        "Brier": {"Spearman": 0.752362, "Top-20 Retention": 0.54820},
+        "BSS": {"Spearman": 0.736271, "Top-20 Retention": 0.61590},
+        "Peer Score": {"Spearman": 0.815567, "Top-20 Retention": 0.61445},
+    }
+
+    # Check results
+    summary = results.groupby("method")[["Spearman", "Top-20 Retention"]].mean()
+
+    for method, expected in expected_results.items():
+        for metric, expected_value in expected.items():
+            actual_value = summary.loc[method, metric]
+
+            # Use reasonable tolerance for random simulations
+            assert np.isclose(
+                actual_value, expected_value, atol=0.00001
+            ), f"{method} {metric}: expected {expected_value:.6f}, \
+                got {actual_value:.6f}"
