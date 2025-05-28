@@ -27,7 +27,7 @@ INPUT_FOLDER = "./data/raw"
 PROCESSED_FOLDER = "./data/processed"
 RESULTS_FOLDER = "./data/results"
 REF_MODEL = "GPT-4 (zero shot)"
-N_SIMULATIONS = 1000
+N_SIMULATIONS = 100
 N_QUESTIONS_PER_MODEL = (
     125  # Ensures ~25 overlapping questions between two models given the dataset
 )
