@@ -29,6 +29,15 @@ ranking-simulation/
 └── run_simulation.py       # Main script to run simulations
 ```
 
+## Setup
+
+Clone the Github repo. Create the expected data directories
+```bash
+mkdir -p data/{raw,processed,results}
+```
+
+Copy the `leaderboard_human.pkl` file into `data/raw`.
+
 ## Usage
 
 Run the simulation:
