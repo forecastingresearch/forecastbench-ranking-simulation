@@ -181,7 +181,10 @@ def median_displacement(df_true_ranking, df_sim_ranking):
 # ==========
 
 
-def simulate_dataset(df, n_questions_per_model, ref_model="Always 0.5"):
+def simulate_random_sampling(df, n_questions_per_model, ref_model="Always 0.5"):
+    """Simulate a dataset by drawing a n_questions_per_model random questions
+    (sampled with replacement) from the full sample of questions. ref_model
+    answers all questions"""
     # Get parameters
     models = df["model"].unique()
     questions = df["question_id"].unique()
@@ -248,7 +251,8 @@ def evaluate_ranking_methods(
     df,
     ranking_methods,
     evaluation_metrics,
-    n_questions_per_model,
+    simulation_func,
+    simulation_kwargs,
     n_simulations=1000,
     dataset_weight=0.5,
     ref_model="Always 0.5",
@@ -266,10 +270,8 @@ def evaluate_ranking_methods(
     # Run simulations
     results_list = []
     for sim in range(n_simulations):
-        # Generate simulated dataset
-        df_sim = simulate_dataset(
-            df=df, n_questions_per_model=n_questions_per_model, ref_model=ref_model
-        )
+        # Generate simulated dataset using the provided simulation function
+        df_sim = simulation_func(df=df, ref_model=ref_model, **simulation_kwargs)
 
         # Evaluate each ranking method
         for method_name, method_info in ranking_methods.items():
