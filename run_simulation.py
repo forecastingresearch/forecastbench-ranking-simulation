@@ -29,7 +29,7 @@ INPUT_FOLDER = "./data/raw"
 PROCESSED_FOLDER = "./data/processed"
 RESULTS_FOLDER = "./data/results"
 REF_MODEL = "GPT-4 (zero shot)"
-N_SIMULATIONS = 1000
+N_SIMULATIONS = 10
 
 # Parameters for random sampling
 N_QUESTIONS_PER_MODEL = (
@@ -60,6 +60,117 @@ simulation_methods = {
 }
 
 
+def validate_processed_data(df):
+    """Validate the processed dataset for consistency and completeness."""
+    print("\nValidating processed data...")
+
+    # 1. Check for duplicates at [question_id, model] level
+    duplicates = df.duplicated(subset=["question_id", "model"], keep=False)
+    if duplicates.any():
+        dup_data = df[duplicates].sort_values(["question_id", "model"])
+        raise ValueError(
+            f"Found {duplicates.sum()} duplicate entries at \
+                [question_id, model] level:\n{dup_data.head(10)}"
+        )
+    print("✓ No duplicates at [question_id, model] level")
+
+    # 2. Check perfect coverage: each model should predict every question
+    models = df["model"].unique()
+    questions = df["question_id"].unique()
+    expected_entries = len(models) * len(questions)
+    actual_entries = len(df)
+
+    if actual_entries != expected_entries:
+        # Find which model-question pairs are missing
+        from itertools import product
+
+        expected_pairs = set(product(models, questions))
+        actual_pairs = set(zip(df["model"], df["question_id"]))
+        missing_pairs = expected_pairs - actual_pairs
+
+        if missing_pairs:
+            missing_sample = list(missing_pairs)[:5]
+            print(
+                f"WARNING: Missing {len(missing_pairs)} model-question pairs. \
+                    Examples: {missing_sample}"
+            )
+        else:
+            print(
+                f"WARNING: Found {actual_entries} entries, expected {expected_entries}"
+            )
+    else:
+        print("✓ Perfect coverage: all models predict all questions")
+
+    # 3. For market questions, check single forecast horizon
+    df_market = df[df["question_type"] == "market"]
+    if len(df_market) > 0:
+        # Check if any question has multiple horizons by looking at unique combinations
+        question_horizons = df_market.groupby(["source", "id"])["horizon"].nunique()
+        multi_horizon = question_horizons[question_horizons > 1]
+
+        if len(multi_horizon) > 0:
+            print(
+                f"WARNING: {len(multi_horizon)} market questions \
+                    have multiple horizons:"
+            )
+            print(multi_horizon.head())
+        else:
+            print("✓ All market questions have single forecast horizon")
+
+    # 4. Check for missing values in critical columns
+    critical_columns = [
+        "model",
+        "question_id",
+        "forecast",
+        "resolved_to",
+        "question_type",
+    ]
+    missing_values = df[critical_columns].isnull().sum()
+    if missing_values.any():
+        raise ValueError(
+            f"Found missing values in critical \
+                columns:\n{missing_values[missing_values > 0]}"
+        )
+    print("✓ No missing values in critical columns")
+
+    # 5. Check forecast values are in [0, 1]
+    invalid_forecasts = df[(df["forecast"] < 0) | (df["forecast"] > 1)]
+    if len(invalid_forecasts) > 0:
+        raise ValueError(
+            f"Found {len(invalid_forecasts)} forecasts outside [0, 1] range"
+        )
+    print("✓ All forecasts are in valid range [0, 1]")
+
+    # 6. Check resolved_to is binary
+    unique_resolved = df["resolved_to"].unique()
+    if not set(unique_resolved).issubset({0, 1, 0.0, 1.0}):
+        raise ValueError(f"resolved_to contains non-binary values: {unique_resolved}")
+    print("✓ All resolved_to values are binary")
+
+    # 7. Check question_type values
+    valid_types = {"dataset", "market"}
+    actual_types = set(df["question_type"].unique())
+    if not actual_types.issubset(valid_types):
+        raise ValueError(f"Invalid question types found: {actual_types - valid_types}")
+    print("✓ All question_type values are valid")
+
+    # 8. Summary statistics
+    print("\nDataset summary:")
+    print(f"- Total entries: {len(df):,}")
+    print(f"- Unique models: {len(models)}")
+    print(f"- Unique questions: {len(questions)}")
+    print(f"- Dataset questions: {(df['question_type'] == 'dataset').sum():,}")
+    print(f"- Market questions: {(df['question_type'] == 'market').sum():,}")
+    print(
+        f"- Date range: {df['forecast_due_date'].min()} \
+            to {df['forecast_due_date'].max()}"
+        if "forecast_due_date" in df.columns
+        else ""
+    )
+
+    return True
+
+
 def main():
     print("Loading data...")
     df = process_raw_data(f"{INPUT_FOLDER}/leaderboard_human.pkl")
@@ -68,6 +179,14 @@ def main():
     # Load the processed dataset
     df = pd.read_csv(f"{PROCESSED_FOLDER}/processed_dataset.csv")
     print(f"Loaded {len(df)} records")
+
+    # Validate the processed data
+    try:
+        validate_processed_data(df)
+        print("\n✅ Data validation passed!")
+    except ValueError as e:
+        print(f"\n❌ Data validation failed: {e}")
+        sys.exit(1)
 
     # Define ranking methods, with the following tuple elements:
     # 1: ranking method name
