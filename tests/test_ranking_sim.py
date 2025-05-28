@@ -1060,3 +1060,151 @@ def test_simulate_round_based_models_per_round_mean():
     assert (
         abs(empirical_var - empirical_mean) < 2.0
     ), f"Variance {empirical_var} too different from mean {empirical_mean} for Poisson"
+
+
+def test_simulate_round_based_perfect_ranking_when_all_questions_sampled():
+    """Test that ranking is perfect when questions_per_round equals total questions."""
+    # Create test data with clear performance differences
+    np.random.seed(42)
+    n_questions = 20
+    models = ["RefModel", "Excellent", "Good", "Average", "Poor"]
+
+    data = []
+    for i in range(n_questions):
+        outcome = np.random.binomial(1, 0.5)
+
+        for model in models:
+            if model == "RefModel":
+                forecast = 0.5  # Constant reference
+            elif model == "Excellent":
+                forecast = 0.9 if outcome else 0.1
+            elif model == "Good":
+                forecast = 0.8 if outcome else 0.2
+            elif model == "Average":
+                forecast = 0.7 if outcome else 0.3
+            elif model == "Poor":
+                forecast = 0.6 if outcome else 0.4
+
+            data.append(
+                {
+                    "model": model,
+                    "question_id": f"q{i}",
+                    "forecast": forecast,
+                    "resolved_to": outcome,
+                    "question_type": "dataset",
+                }
+            )
+
+    df = pd.DataFrame(data)
+
+    # Calculate true ranking using all data
+    true_ranking = rank_by_brier(df)
+
+    # Run simulation with questions_per_round = total questions
+    # and high models_per_round_mean to ensure all models participate
+    np.random.seed(123)
+    df_sim = simulate_round_based(
+        df,
+        n_rounds=5,
+        questions_per_round=n_questions,  # Sample ALL questions each round
+        models_per_round_mean=len(models),  # High mean to get all models
+        ref_model="RefModel",
+    )
+
+    # Calculate ranking from simulation
+    sim_ranking = rank_by_brier(df_sim)
+
+    # Check which models participated in the simulation
+    models_in_sim = set(df_sim["model"].unique())
+    models_in_true = set(true_ranking["model"].unique())
+
+    # All models should have participated (with high models_per_round_mean)
+    assert (
+        models_in_sim == models_in_true
+    ), f"Not all models participated. Missing: {models_in_true - models_in_sim}"
+
+    # Merge rankings
+    comparison = pd.merge(
+        true_ranking[["model", "avg_brier", "rank"]],
+        sim_ranking[["model", "avg_brier", "rank"]],
+        on="model",
+        suffixes=("_true", "_sim"),
+    )
+
+    # Check that rankings match perfectly
+    assert (
+        comparison["rank_true"] == comparison["rank_sim"]
+    ).all(), f"Rankings don't match:\n{comparison}"
+
+    # Check that Brier scores are identical (within floating point tolerance)
+    assert np.allclose(
+        comparison["avg_brier_true"], comparison["avg_brier_sim"]
+    ), f"Brier scores don't match:\n{comparison}"
+
+
+def test_simulate_round_based_perfect_ranking_multiple_simulations():
+    """Test perfect ranking across multiple simulations when sampling all questions."""
+    # Create test data
+    np.random.seed(42)
+    n_questions = 15
+    models = ["RefModel", "A", "B", "C"]
+
+    data = []
+    for i in range(n_questions):
+        outcome = np.random.binomial(1, 0.6)
+
+        for model in models:
+            if model == "RefModel":
+                forecast = 0.5
+            elif model == "A":
+                forecast = 0.85 if outcome else 0.15
+            elif model == "B":
+                forecast = 0.75 if outcome else 0.25
+            elif model == "C":
+                forecast = 0.65 if outcome else 0.35
+
+            data.append(
+                {
+                    "model": model,
+                    "question_id": f"q{i}",
+                    "forecast": forecast,
+                    "resolved_to": outcome,
+                    "question_type": "dataset",
+                }
+            )
+
+    df = pd.DataFrame(data)
+
+    # Calculate true ranking
+    true_ranking = rank_by_brier(df)
+
+    # Run multiple simulations
+    n_simulations = 10
+    for sim in range(n_simulations):
+        np.random.seed(sim + 1000)
+
+        df_sim = simulate_round_based(
+            df,
+            n_rounds=3,
+            questions_per_round=n_questions,
+            models_per_round_mean=100,  # Very high to ensure all models participate
+            ref_model="RefModel",
+        )
+
+        sim_ranking = rank_by_brier(df_sim)
+
+        # Verify all models participated
+        assert set(sim_ranking["model"]) == set(true_ranking["model"])
+
+        # Merge and compare
+        comparison = pd.merge(
+            true_ranking[["model", "rank"]],
+            sim_ranking[["model", "rank"]],
+            on="model",
+            suffixes=("_true", "_sim"),
+        )
+
+        # Rankings should match perfectly in every simulation
+        assert (
+            comparison["rank_true"] == comparison["rank_sim"]
+        ).all(), f"Rankings don't match in simulation {sim}:\n{comparison}"
