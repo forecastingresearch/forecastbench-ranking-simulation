@@ -181,7 +181,10 @@ def median_displacement(df_true_ranking, df_sim_ranking):
 # ==========
 
 
-def simulate_dataset(df, n_questions_per_model, ref_model="Always 0.5"):
+def simulate_random_sampling(df, n_questions_per_model, ref_model="Always 0.5"):
+    """Simulate a dataset by drawing a n_questions_per_model random questions
+    (sampled with replacement) from the full sample of questions. ref_model
+    answers all questions"""
     # Get parameters
     models = df["model"].unique()
     questions = df["question_id"].unique()
@@ -244,11 +247,99 @@ def simulate_dataset(df, n_questions_per_model, ref_model="Always 0.5"):
     return df_results
 
 
+def simulate_round_based(
+    df,
+    n_rounds=15,
+    questions_per_round=25,
+    models_per_round_mean=40,
+    ref_model="Always 0.5",
+):
+    """
+    Simulate dataset using round-based sampling.
+
+    Each round samples questions_per_round questions (with replacement)
+    from the full set of questions. For each round, we sample
+    which models participate. When a model participates in a round,
+    it answers ALL questions in that round.
+    """
+    # Get parameters
+    models = df["model"].unique()
+    questions = df["question_id"].unique()
+
+    # Check if ref_model exists
+    if ref_model is None or ref_model not in models:
+        raise ValueError("Reference model not provided or not found in data.")
+
+    # Create list of non-reference models
+    other_models = [m for m in models if m != ref_model]
+    n_non_reference_models = len(other_models)
+
+    # Create rounds by sampling questions with replacement
+    rounds = []
+    for round_id in range(n_rounds):
+        # Sample questions with replacement for this round
+        round_questions = np.random.choice(
+            questions, size=questions_per_round, replace=True
+        )
+
+        # Sample number of models for this round (Poisson, but
+        # at least 1 non-ref model, and less than total available
+        # models)
+        n_models_this_round = max(1, np.random.poisson(models_per_round_mean))
+        n_models_this_round = min(n_models_this_round, n_non_reference_models)
+
+        # Randomly select which models participate in this round;
+        # sampling without replacement
+        selected_models = np.random.choice(
+            other_models, size=n_models_this_round, replace=False
+        )
+
+        # Add reference model to the list
+        round_models = [ref_model] + selected_models.tolist()
+
+        rounds.append(
+            {
+                "round_id": round_id,
+                "round_questions": round_questions,
+                "round_models": round_models,
+            }
+        )
+
+    # Create a clean pandas df
+    data_rows = []
+
+    for round_info in rounds:
+        round_id = round_info["round_id"]
+        round_questions = round_info["round_questions"]
+        round_models = round_info["round_models"]
+
+        # Create entries for each model-question pair in this round
+        for model in round_models:
+            for question_id in round_questions:
+                data_rows.append(
+                    {"model": model, "question_id": question_id, "round_id": round_id}
+                )
+
+    # Create DataFrame from all samples
+    df_samples = pd.DataFrame(data_rows)
+
+    # Merge with original data to get forecasts and outcomes
+    # round_id ensures uniqueness during merge
+    df_results = df_samples.merge(
+        df[["model", "question_id", "forecast", "resolved_to", "question_type"]],
+        on=["model", "question_id"],
+        how="left",
+    )
+
+    return df_results
+
+
 def evaluate_ranking_methods(
     df,
     ranking_methods,
     evaluation_metrics,
-    n_questions_per_model,
+    simulation_func,
+    simulation_kwargs,
     n_simulations=1000,
     dataset_weight=0.5,
     ref_model="Always 0.5",
@@ -266,10 +357,8 @@ def evaluate_ranking_methods(
     # Run simulations
     results_list = []
     for sim in range(n_simulations):
-        # Generate simulated dataset
-        df_sim = simulate_dataset(
-            df=df, n_questions_per_model=n_questions_per_model, ref_model=ref_model
-        )
+        # Generate simulated dataset using the provided simulation function
+        df_sim = simulation_func(df=df, ref_model=ref_model, **simulation_kwargs)
 
         # Evaluate each ranking method
         for method_name, method_info in ranking_methods.items():

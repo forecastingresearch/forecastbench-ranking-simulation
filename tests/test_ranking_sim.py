@@ -15,7 +15,8 @@ from ranking_sim import (
     rank_by_bss,
     rank_by_peer_score,
     rank_with_weighting,
-    simulate_dataset,
+    simulate_random_sampling,
+    simulate_round_based,
     spearman_correlation,
     top_k_retention,
 )
@@ -429,7 +430,7 @@ def test_rank_with_weighting():
     assert result_market[result_market["model"] == "B"]["rank"].values[0] == 3
 
 
-def test_simulate_dataset():
+def test_simulate_random_sampling():
     """Test dataset simulation with controlled overlap."""
     # Create a small dataset
     df = pd.DataFrame(
@@ -446,7 +447,7 @@ def test_simulate_dataset():
     np.random.seed(42)
 
     # Test with 20% overlap
-    df_sim = simulate_dataset(df, n_questions_per_model=2, ref_model="A")
+    df_sim = simulate_random_sampling(df, n_questions_per_model=2, ref_model="A")
 
     # Check that ref model A has all questions
     a_questions = df_sim[df_sim["model"] == "A"]["question_id"].unique()
@@ -469,7 +470,7 @@ def test_simulate_dataset():
         assert row["question_type"] == orig_row["question_type"]
 
     # Test with n_questions_per_model=3
-    df_sim_full = simulate_dataset(df, n_questions_per_model=3, ref_model="A")
+    df_sim_full = simulate_random_sampling(df, n_questions_per_model=3, ref_model="A")
 
     # Each model should have all 3 questions
     for model in ["A", "B", "C"]:
@@ -478,10 +479,10 @@ def test_simulate_dataset():
 
     # Test that ref_model must exist
     with pytest.raises(ValueError, match="Reference model not provided"):
-        simulate_dataset(df, n_questions_per_model=2, ref_model="NonExistent")
+        simulate_random_sampling(df, n_questions_per_model=2, ref_model="NonExistent")
 
 
-def test_simulate_dataset_overlap():
+def test_simulate_random_sampling_overlap():
     """Test that overlap between models matches theoretical expectations."""
     np.random.seed(42)
 
@@ -515,7 +516,9 @@ def test_simulate_dataset_overlap():
     overlaps = []
 
     for _ in range(n_simulations):
-        df_sim = simulate_dataset(df, n_questions_per_model, ref_model="RefModel")
+        df_sim = simulate_random_sampling(
+            df, n_questions_per_model, ref_model="RefModel"
+        )
 
         # Get questions answered by each model
         a_questions = set(df_sim[df_sim["model"] == "A"]["question_id"].unique())
@@ -605,11 +608,20 @@ def test_evaluate_ranking_methods_oracle():
         "Spearman": (spearman_correlation, {}),
     }
 
+    simulation_methods = {
+        "random_sampling": (
+            simulate_random_sampling,
+            {"n_questions_per_model": 20},
+        )
+    }
+    simulation_func, simulation_kwargs = simulation_methods["random_sampling"]
+
     results_no_bss = evaluate_ranking_methods(
         df=df,
         ranking_methods=ranking_methods_no_bss,
         evaluation_metrics=evaluation_metrics,
-        n_questions_per_model=30,
+        simulation_func=simulation_func,
+        simulation_kwargs=simulation_kwargs,
         n_simulations=50,
         dataset_weight=1.0,
         ref_model="Random",  # Ensure Random is always present
@@ -677,7 +689,9 @@ def test_bss_brier_identical_with_constant_reference():
     df = pd.DataFrame(data)
 
     # Simulate a dataset
-    df_sim = simulate_dataset(df, n_questions_per_model=20, ref_model="Always 0.5")
+    df_sim = simulate_random_sampling(
+        df, n_questions_per_model=20, ref_model="Always 0.5"
+    )
 
     # Get rankings from both methods
     brier_ranking = rank_by_brier(df_sim)
@@ -783,11 +797,22 @@ def test_evaluate_ranking_methods_correlation_vs_coverage():
     mean_correlations = []
 
     for n_q in coverage_levels:
+        # Define simulation
+        simulation_methods = {
+            "random_sampling": (
+                simulate_random_sampling,
+                {"n_questions_per_model": n_q},
+            )
+        }
+        simulation_func, simulation_kwargs = simulation_methods["random_sampling"]
+
+        # Perform evaluation
         results = evaluate_ranking_methods(
             df=df,
             ranking_methods=ranking_methods,
             evaluation_metrics=evaluation_metrics,
-            n_questions_per_model=n_q,
+            simulation_func=simulation_func,
+            simulation_kwargs=simulation_kwargs,
             n_simulations=100,
             dataset_weight=1.0,
             ref_model="Reference",
@@ -811,3 +836,227 @@ def test_evaluate_ranking_methods_correlation_vs_coverage():
     assert (
         mean_correlations[-1] > 0.99
     ), f"With 80% coverage, correlation should be > 0.99, got {mean_correlations[-1]}"
+
+
+def test_simulate_round_based_questions_per_round():
+    """Test that each round has exactly questions_per_round questions."""
+    # Create test data
+    df = pd.DataFrame(
+        {
+            "model": ["RefModel", "A", "B"] * 30,
+            "question_id": ["q1"] * 90,
+            "forecast": [0.5] * 90,
+            "resolved_to": [1] * 90,
+            "question_type": ["dataset"] * 90,
+        }
+    )
+
+    # Create unique questions
+    for i in range(30):
+        df.loc[i * 3 : (i + 1) * 3 - 1, "question_id"] = f"q{i}"
+
+    np.random.seed(42)
+    questions_per_round = 7
+    df_sim = simulate_round_based(
+        df,
+        n_rounds=4,
+        questions_per_round=questions_per_round,
+        models_per_round_mean=2,
+        ref_model="RefModel",
+    )
+
+    # Check each round has the correct number of questions
+    for round_id in df_sim["round_id"].unique():
+        round_data = df_sim[df_sim["round_id"] == round_id]
+        # Get questions for any model in this round (they should all be the same)
+        model = round_data["model"].iloc[0]
+        questions_in_round = round_data[round_data["model"] == model][
+            "question_id"
+        ].values
+        assert len(questions_in_round) == questions_per_round
+
+
+def test_simulate_round_based_ref_model_all_rounds():
+    """Test that reference model participates in all rounds."""
+    # Create test data
+    df = pd.DataFrame(
+        {
+            "model": ["RefModel", "A", "B", "C"] * 10,
+            "question_id": ["q1", "q1", "q1", "q1"] * 10,
+            "forecast": [0.5] * 40,
+            "resolved_to": [1] * 40,
+            "question_type": ["dataset"] * 40,
+        }
+    )
+
+    # Make unique questions
+    for i in range(10):
+        df.loc[i * 4 : (i + 1) * 4 - 1, "question_id"] = f"q{i}"
+
+    np.random.seed(42)
+    df_sim = simulate_round_based(
+        df,
+        n_rounds=5,
+        questions_per_round=3,
+        models_per_round_mean=2,
+        ref_model="RefModel",
+    )
+
+    # Check that RefModel appears in all rounds
+    ref_model_rounds = df_sim[df_sim["model"] == "RefModel"]["round_id"].unique()
+    assert len(ref_model_rounds) == 5
+    assert set(ref_model_rounds) == {0, 1, 2, 3, 4}
+
+
+def test_simulate_round_based_all_models_answer_all_questions_in_round():
+    """Test that all models in a round answer all questions in that round."""
+    # Create test data
+    df = pd.DataFrame(
+        {
+            "model": ["RefModel", "A", "B", "C", "D"] * 20,
+            "question_id": ["q1"] * 100,
+            "forecast": [0.5] * 100,
+            "resolved_to": [1] * 100,
+            "question_type": ["dataset"] * 100,
+        }
+    )
+
+    # Create unique questions
+    for i in range(20):
+        df.loc[i * 5 : (i + 1) * 5 - 1, "question_id"] = f"q{i}"
+
+    np.random.seed(42)
+    questions_per_round = 5
+    df_sim = simulate_round_based(
+        df,
+        n_rounds=3,
+        questions_per_round=questions_per_round,
+        models_per_round_mean=3,
+        ref_model="RefModel",
+    )
+
+    # For each round, check that all models answer all questions
+    for round_id in df_sim["round_id"].unique():
+        round_data = df_sim[df_sim["round_id"] == round_id]
+
+        # Get unique models in this round
+        models_in_round = round_data["model"].unique()
+
+        # Get all questions in this round (including duplicates)
+        # We'll check using the first model's questions as reference
+        first_model = models_in_round[0]
+        reference_questions = round_data[round_data["model"] == first_model][
+            "question_id"
+        ].values
+
+        # Each model should answer exactly questions_per_round questions
+        for model in models_in_round:
+            model_questions = round_data[round_data["model"] == model][
+                "question_id"
+            ].values
+
+            # Check that this model answered the correct number of questions
+            assert (
+                len(model_questions) == questions_per_round
+            ), f"Model {model} answered {len(model_questions)} questions, \
+                expected {questions_per_round}"
+
+            # Check that this model answered the same questions as the reference
+            # (order might differ, but content should be the same)
+            assert sorted(model_questions.tolist()) == sorted(
+                reference_questions.tolist()
+            ), f"Model {model} answered different questions than expected"
+
+
+def test_simulate_round_based_total_rounds():
+    """Test that there are exactly n_rounds rounds."""
+    # Create test data
+    df = pd.DataFrame(
+        {
+            "model": ["RefModel", "A", "B", "C"] * 10,
+            "question_id": ["q1"] * 40,
+            "forecast": [0.5] * 40,
+            "resolved_to": [1] * 40,
+            "question_type": ["dataset"] * 40,
+        }
+    )
+
+    # Create unique questions
+    for i in range(10):
+        df.loc[i * 4 : (i + 1) * 4 - 1, "question_id"] = f"q{i}"
+
+    np.random.seed(42)
+    n_rounds = 8
+    df_sim = simulate_round_based(
+        df,
+        n_rounds=n_rounds,
+        questions_per_round=3,
+        models_per_round_mean=2,
+        ref_model="RefModel",
+    )
+
+    # Check total number of rounds
+    unique_rounds = df_sim["round_id"].unique()
+    assert len(unique_rounds) == n_rounds
+    assert set(unique_rounds) == set(range(n_rounds))
+
+
+def test_simulate_round_based_models_per_round_mean():
+    """Test that empirical mean of models per round matches the parameter."""
+    # Create test data with many models
+    n_models = 50
+    models = ["RefModel"] + [f"Model_{i}" for i in range(n_models - 1)]
+
+    data = []
+    for model in models:
+        for q in range(20):
+            data.append(
+                {
+                    "model": model,
+                    "question_id": f"q{q}",
+                    "forecast": 0.5,
+                    "resolved_to": 1,
+                    "question_type": "dataset",
+                }
+            )
+    df = pd.DataFrame(data)
+
+    # Run many simulations
+    np.random.seed(42)
+    n_simulations = 100
+    models_per_round_mean = 15
+    all_models_per_round = []
+
+    for i in range(n_simulations):
+        np.random.seed(i)
+        df_sim = simulate_round_based(
+            df,
+            n_rounds=10,
+            questions_per_round=5,
+            models_per_round_mean=models_per_round_mean,
+            ref_model="RefModel",
+        )
+
+        # Count models per round (excluding reference model)
+        for round_id in df_sim["round_id"].unique():
+            round_data = df_sim[df_sim["round_id"] == round_id]
+            models_in_round = round_data["model"].unique()
+            # Subtract 1 for reference model
+            n_models_in_round = len(models_in_round) - 1
+            all_models_per_round.append(n_models_in_round)
+
+    # Check empirical mean
+    empirical_mean = np.mean(all_models_per_round)
+
+    # The empirical mean should be close to the parameter
+    # Allow for some deviation due to Poisson sampling
+    assert (
+        abs(empirical_mean - models_per_round_mean) < 1.0
+    ), f"Empirical mean {empirical_mean} too far from parameter {models_per_round_mean}"
+
+    # Also check that the distribution looks roughly Poisson
+    # by checking the variance is close to the mean
+    empirical_var = np.var(all_models_per_round)
+    assert (
+        abs(empirical_var - empirical_mean) < 2.0
+    ), f"Variance {empirical_var} too different from mean {empirical_mean} for Poisson"

@@ -14,6 +14,8 @@ from ranking_sim import (
     rank_by_brier,
     rank_by_bss,
     rank_by_peer_score,
+    simulate_random_sampling,
+    simulate_round_based,
     spearman_correlation,
     top_k_retention,
 )
@@ -27,11 +29,35 @@ INPUT_FOLDER = "./data/raw"
 PROCESSED_FOLDER = "./data/processed"
 RESULTS_FOLDER = "./data/results"
 REF_MODEL = "GPT-4 (zero shot)"
-N_SIMULATIONS = 100
+N_SIMULATIONS = 1000
+
+# Parameters for random sampling
 N_QUESTIONS_PER_MODEL = (
     125  # Ensures ~25 overlapping questions between two models given the dataset
 )
+
+# Parameters for round-based sampling
+N_ROUNDS = 15
+QUESTIONS_PER_ROUND = 25
+MODELS_PER_ROUND_MEAN = 40
 DATASET_WEIGHT = 0.5
+SIMULATION_METHOD = "round_based"
+
+# Define simulation methods
+simulation_methods = {
+    "random_sampling": (
+        simulate_random_sampling,
+        {"n_questions_per_model": N_QUESTIONS_PER_MODEL},
+    ),
+    "round_based": (
+        simulate_round_based,
+        {
+            "n_rounds": N_ROUNDS,
+            "questions_per_round": QUESTIONS_PER_ROUND,
+            "models_per_round_mean": MODELS_PER_ROUND_MEAN,
+        },
+    ),
+}
 
 
 def main():
@@ -64,12 +90,17 @@ def main():
         "Median Displacement": (median_displacement, {}),
     }
 
+    # Get simulation method
+    simulation_func, simulation_kwargs = simulation_methods[SIMULATION_METHOD]
+    print(f"Using simulation method: {SIMULATION_METHOD}")
+
     print(f"Running {N_SIMULATIONS} simulations...")
     results = evaluate_ranking_methods(
         df=df,
         ranking_methods=ranking_methods,
         evaluation_metrics=evaluation_metrics,
-        n_questions_per_model=N_QUESTIONS_PER_MODEL,
+        simulation_func=simulation_func,
+        simulation_kwargs=simulation_kwargs,
         n_simulations=N_SIMULATIONS,
         dataset_weight=DATASET_WEIGHT,
         ref_model=REF_MODEL,
