@@ -1688,6 +1688,7 @@ def test_simulation_regression_results():
     # Define methods
     ranking_methods = {
         "Brier": (rank_by_brier, "avg_brier", True, {}),
+        "Diff-Adj. Brier": (rank_by_diff_adj_brier, "avg_diff_adj_brier", True, {}),
         "BSS": (rank_by_bss, "avg_bss", False, {"ref_model": "GPT-4 (zero shot)"}),
         "Peer Score": (rank_by_peer_score, "avg_peer_score", False, {}),
     }
@@ -1712,6 +1713,7 @@ def test_simulation_regression_results():
     # Expected results (from known good run)
     expected_results = {
         "Brier": {"Spearman": 0.734675, "Top-20 Retention": 0.52990},
+        "Diff-Adj. Brier": {"Spearman": 0.818897, "Top-20 Retention": 0.61450},
         "BSS": {"Spearman": 0.726049, "Top-20 Retention": 0.61390},
         "Peer Score": {"Spearman": 0.818684, "Top-20 Retention": 0.61525},
     }
@@ -1757,6 +1759,7 @@ def test_simulation_regression_round_based_results():
     # Define methods
     ranking_methods = {
         "Brier": (rank_by_brier, "avg_brier", True, {}),
+        "Diff-Adj. Brier": (rank_by_diff_adj_brier, "avg_diff_adj_brier", True, {}),
         "BSS": (rank_by_bss, "avg_bss", False, {"ref_model": "GPT-4 (zero shot)"}),
         "Peer Score": (rank_by_peer_score, "avg_peer_score", False, {}),
     }
@@ -1785,6 +1788,7 @@ def test_simulation_regression_round_based_results():
     # Expected results (from known good run)
     expected_results = {
         "Brier": {"Spearman": 0.752362, "Top-20 Retention": 0.54820},
+        "Diff-Adj. Brier": {"Spearman": 0.816028, "Top-20 Retention": 0.61520},
         "BSS": {"Spearman": 0.736271, "Top-20 Retention": 0.61590},
         "Peer Score": {"Spearman": 0.815567, "Top-20 Retention": 0.61445},
     }
