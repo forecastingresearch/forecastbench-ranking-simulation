@@ -14,6 +14,7 @@ from ranking_sim import (
     process_raw_data,
     rank_by_brier,
     rank_by_bss,
+    rank_by_diff_adj_brier,
     rank_by_peer_score,
     rank_with_weighting,
     simulate_random_sampling,
@@ -46,6 +47,115 @@ def test_rank_by_brier():
     assert "rank" in rankings.columns
     assert rankings[rankings["model"] == "A"]["rank"].values[0] == 2
     assert rankings[rankings["model"] == "C"]["rank"].values[0] == 1
+
+
+def test_rank_by_diff_adj_brier_edge_cases():
+    """Test edge cases like single model, single question, or missing data."""
+
+    # Test 1: Single model
+    df_single_model = pd.DataFrame(
+        {
+            "model": ["Model_A"] * 5,
+            "question_id": [f"q{i}" for i in range(5)],
+            "forecast": [0.7, 0.8, 0.6, 0.9, 0.5],
+            "resolved_to": [1, 1, 0, 1, 0],
+            "question_type": ["dataset"] * 5,
+        }
+    )
+
+    # Should not raise an error
+    ranking = rank_by_diff_adj_brier(df_single_model)
+    assert len(ranking) == 1
+    assert ranking["model"].iloc[0] == "Model_A"
+    assert ranking["rank"].iloc[0] == 1
+
+    # Test 2: All models predict the same for all questions
+    df_identical = pd.DataFrame(
+        {
+            "model": ["A", "B", "C"] * 3,
+            "question_id": ["q1", "q1", "q1", "q2", "q2", "q2", "q3", "q3", "q3"],
+            "forecast": [0.7] * 9,
+            "resolved_to": [1, 1, 1, 0, 0, 0, 1, 1, 1],
+            "question_type": ["dataset"] * 9,
+        }
+    )
+
+    ranking = rank_by_diff_adj_brier(df_identical)
+
+    # All models should have the same score and rank
+    assert len(ranking["avg_diff_adj_brier"].unique()) == 1
+    assert (ranking["rank"] == 1).all()  # All tied for first
+
+
+def test_rank_by_diff_adj_brier_balanced_dataset():
+    """Test that all ranking methods agree on a perfectly balanced dataset."""
+    # Create a balanced dataset where each model has consistent skill
+    # Model skill levels: A=0.9, B=0.7, C=0.5, D=0.3 (calibration)
+
+    np.random.seed(42)
+    n_questions = 20
+    models = {
+        "Model_A": 0.9,  # Best calibration
+        "Model_B": 0.7,
+        "Model_C": 0.5,
+        "Model_D": 0.3,  # Worst calibration
+    }
+
+    data = []
+    for q_idx in range(n_questions):
+        # Random outcome for each question
+        outcome = np.random.binomial(1, 0.5)
+
+        for model, skill in models.items():
+            # Model predicts: skill if outcome=1, (1-skill) if outcome=0
+            if outcome == 1:
+                forecast = skill
+            else:
+                forecast = 1 - skill
+
+            data.append(
+                {
+                    "model": model,
+                    "question_id": f"q{q_idx}",
+                    "forecast": forecast,
+                    "resolved_to": outcome,
+                    "question_type": "dataset",
+                }
+            )
+
+    df = pd.DataFrame(data)
+
+    # Get rankings from all methods
+    brier_ranking = rank_by_brier(df)
+    diff_adj_ranking = rank_by_diff_adj_brier(df)
+    peer_ranking = rank_by_peer_score(df)
+    bss_ranking = rank_by_bss(df, ref_model="Model_C")
+
+    # All methods should produce the same ranking
+    for ranking_df in [brier_ranking, diff_adj_ranking, peer_ranking, bss_ranking]:
+        assert ranking_df[ranking_df["model"] == "Model_A"]["rank"].iloc[0] == 1
+        assert ranking_df[ranking_df["model"] == "Model_B"]["rank"].iloc[0] == 2
+        assert ranking_df[ranking_df["model"] == "Model_C"]["rank"].iloc[0] == 3
+        assert ranking_df[ranking_df["model"] == "Model_D"]["rank"].iloc[0] == 4
+
+    # Check that score differences are preserved
+    # The difference between consecutive models should be the same
+    # for brier and diff-adj brier
+    brier_scores = brier_ranking.set_index("model")["avg_brier"]
+    diff_adj_scores = diff_adj_ranking.set_index("model")["avg_diff_adj_brier"]
+
+    # Calculate differences between consecutive models
+    models_ordered = ["Model_A", "Model_B", "Model_C", "Model_D"]
+    for i in range(len(models_ordered) - 1):
+        model1, model2 = models_ordered[i], models_ordered[i + 1]
+
+        brier_diff = brier_scores[model2] - brier_scores[model1]
+        diff_adj_diff = diff_adj_scores[model2] - diff_adj_scores[model1]
+
+        # Differences should be identical in balanced case
+        assert np.isclose(
+            brier_diff, diff_adj_diff, atol=1e-10
+        ), f"Score differences should match: {brier_diff} vs {diff_adj_diff}"
 
 
 def test_rank_by_bss():
