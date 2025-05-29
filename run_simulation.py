@@ -29,7 +29,7 @@ INPUT_FOLDER = "./data/raw"
 PROCESSED_FOLDER = "./data/processed"
 RESULTS_FOLDER = "./data/results"
 REF_MODEL = "GPT-4 (zero shot)"
-N_SIMULATIONS = 1000
+N_SIMULATIONS = 10
 
 # Parameters for random sampling
 N_QUESTIONS_PER_MODEL = (
@@ -154,7 +154,16 @@ def validate_processed_data(df):
         raise ValueError(f"Invalid question types found: {actual_types - valid_types}")
     print("✓ All question_type values are valid")
 
-    # 8. Summary statistics
+    # 8. Check that only data from the first forecasting round (2024 July)
+    # is present
+    mask = pd.to_datetime(df["forecast_due_date"]) == "2024-07-21"
+    if not mask.all():
+        raise ValueError(
+            f"Invalid forecast_due_date's found: {df.loc[~mask, "forecast_due_date"].values[0:5]}"
+        )
+    print("✓ Only data from 2024-07-21 present")
+
+    # 9. Summary statistics
     print("\nDataset summary:")
     print(f"- Total entries: {len(df):,}")
     print(f"- Unique models: {len(models)}")
