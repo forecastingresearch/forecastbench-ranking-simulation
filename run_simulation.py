@@ -13,6 +13,7 @@ from ranking_sim import (
     process_raw_data,
     rank_by_brier,
     rank_by_bss,
+    rank_by_diff_adj_brier,
     rank_by_peer_score,
     simulate_random_sampling,
     simulate_round_based,
@@ -20,7 +21,7 @@ from ranking_sim import (
     top_k_retention,
 )
 
-# EXPECTED RUNTIME: ~2 minutes on a standard laptop with N_SIMULATIONS = 1000
+# EXPECTED RUNTIME: ~3-4 minutes on a standard laptop with N_SIMULATIONS = 1000
 
 np.random.seed(20250527)
 
@@ -154,20 +155,23 @@ def validate_processed_data(df):
         raise ValueError(f"Invalid question types found: {actual_types - valid_types}")
     print("✓ All question_type values are valid")
 
-    # 8. Summary statistics
+    # 8. Check that only data from the first forecasting round (2024 July)
+    # is present
+    mask = pd.to_datetime(df["forecast_due_date"]) == "2024-07-21"
+    if not mask.all():
+        raise ValueError(
+            f"Invalid forecast_due_date's found: \
+                  {df.loc[~mask, "forecast_due_date"].values[0:5]}"
+        )
+    print("✓ Only data from 2024-07-21 present")
+
+    # 9. Summary statistics
     print("\nDataset summary:")
     print(f"- Total entries: {len(df):,}")
     print(f"- Unique models: {len(models)}")
     print(f"- Unique questions: {len(questions)}")
     print(f"- Dataset questions: {(df['question_type'] == 'dataset').sum():,}")
     print(f"- Market questions: {(df['question_type'] == 'market').sum():,}")
-    print(
-        f"- Date range: {df['forecast_due_date'].min()} \
-            to {df['forecast_due_date'].max()}"
-        if "forecast_due_date" in df.columns
-        else ""
-    )
-
     return True
 
 
@@ -195,6 +199,7 @@ def main():
     # 4: Additional kwargs to the ranking function
     ranking_methods = {
         "Brier": (rank_by_brier, "avg_brier", True, {}),
+        "Diff-Adj. Brier": (rank_by_diff_adj_brier, "avg_diff_adj_brier", True, {}),
         "BSS": (rank_by_bss, "avg_bss", False, {"ref_model": REF_MODEL}),
         "Peer Score": (rank_by_peer_score, "avg_peer_score", False, {}),
     }

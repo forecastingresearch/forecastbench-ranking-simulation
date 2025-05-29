@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pyfixest as pf
 
 # ================
 # Data preparation
@@ -63,6 +64,51 @@ def rank_by_brier(df):
 
     # Rank models (lower Brier score is better)
     model_scores["rank"] = model_scores["avg_brier"].rank(ascending=True, method="min")
+    model_scores = model_scores.sort_values(by="rank")
+
+    return model_scores
+
+
+def rank_by_diff_adj_brier(df):
+    df = df.copy()
+    df["brier_score"] = brier_score(df)
+
+    # Calculate "question difficulty" by estimating
+    # a two-way fixed effect model:
+    #
+    #   brier{i, j} = a_i + b_j + u_{i,j}
+    #
+    # where i = forecaster, and j = question. Question difficulty
+    # is estimated with b_j. In pyfixest, question_id should be
+    # provided as the first FE variable, to ensure we have an estimate
+    # for each question_id (otherwise one question may be dropped to
+    # avoid perfect multicolinearity)
+    mod = pf.feols("brier_score ~ 1 | question_id + model", data=df)
+    dict_question_fe = mod.fixef()["C(question_id)"]
+    if len(dict_question_fe) != len(df["question_id"].unique()):
+        raise ValueError(
+            f"Estimated num. of question fixed effects ({len(dict_question_fe)}) \
+                not equal to num. of questions ({len(df['question_id'].unique())})"
+        )
+
+    # Merge question FE back to the original df
+    df_question_fe = pd.DataFrame(
+        [
+            {"question_id": key, "question_fe": value}
+            for key, value in dict_question_fe.items()
+        ]
+    )
+    df = pd.merge(df, df_question_fe, on="question_id", how="left")
+    df["diff_adj_brier"] = df["brier_score"] - df["question_fe"]
+
+    # Calculate average difficulty-adj. Brier score per model
+    model_scores = df.groupby("model")["diff_adj_brier"].mean().reset_index()
+    model_scores.rename(columns={"diff_adj_brier": "avg_diff_adj_brier"}, inplace=True)
+
+    # Rank models (lower Brier score is better)
+    model_scores["rank"] = model_scores["avg_diff_adj_brier"].rank(
+        ascending=True, method="min"
+    )
     model_scores = model_scores.sort_values(by="rank")
 
     return model_scores
