@@ -21,7 +21,7 @@ from ranking_sim import (
     top_k_retention,
 )
 
-# EXPECTED RUNTIME: ~2 minutes on a standard laptop with N_SIMULATIONS = 1000
+# EXPECTED RUNTIME: ~3-4 minutes on a standard laptop with N_SIMULATIONS = 1000
 
 np.random.seed(20250527)
 
@@ -172,13 +172,6 @@ def validate_processed_data(df):
     print(f"- Unique questions: {len(questions)}")
     print(f"- Dataset questions: {(df['question_type'] == 'dataset').sum():,}")
     print(f"- Market questions: {(df['question_type'] == 'market').sum():,}")
-    print(
-        f"- Date range: {df['forecast_due_date'].min()} \
-            to {df['forecast_due_date'].max()}"
-        if "forecast_due_date" in df.columns
-        else ""
-    )
-
     return True
 
 
