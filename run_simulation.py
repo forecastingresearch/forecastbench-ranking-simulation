@@ -13,6 +13,7 @@ from ranking_sim import (
     process_raw_data,
     rank_by_brier,
     rank_by_bss,
+    rank_by_diff_adj_brier,
     rank_by_peer_score,
     simulate_random_sampling,
     simulate_round_based,
@@ -29,7 +30,7 @@ INPUT_FOLDER = "./data/raw"
 PROCESSED_FOLDER = "./data/processed"
 RESULTS_FOLDER = "./data/results"
 REF_MODEL = "GPT-4 (zero shot)"
-N_SIMULATIONS = 10
+N_SIMULATIONS = 1000
 
 # Parameters for random sampling
 N_QUESTIONS_PER_MODEL = (
@@ -159,7 +160,8 @@ def validate_processed_data(df):
     mask = pd.to_datetime(df["forecast_due_date"]) == "2024-07-21"
     if not mask.all():
         raise ValueError(
-            f"Invalid forecast_due_date's found: {df.loc[~mask, "forecast_due_date"].values[0:5]}"
+            f"Invalid forecast_due_date's found: \
+                  {df.loc[~mask, "forecast_due_date"].values[0:5]}"
         )
     print("✓ Only data from 2024-07-21 present")
 
@@ -204,6 +206,7 @@ def main():
     # 4: Additional kwargs to the ranking function
     ranking_methods = {
         "Brier": (rank_by_brier, "avg_brier", True, {}),
+        "Diff-Adj. Brier": (rank_by_diff_adj_brier, "avg_diff_adj_brier", True, {}),
         "BSS": (rank_by_bss, "avg_bss", False, {"ref_model": REF_MODEL}),
         "Peer Score": (rank_by_peer_score, "avg_peer_score", False, {}),
     }
