@@ -56,4 +56,5 @@ pytest
 - Python 3.7+
 - pandas
 - numpy
+- pyfixest
 - pytest (for running tests)
