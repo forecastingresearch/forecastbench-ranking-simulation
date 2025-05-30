@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pyfixest as pf
+from tqdm import tqdm
 
 # ================
 # Data preparation
@@ -627,7 +628,7 @@ def evaluate_ranking_methods(
     results_list = []
     error_count = 0
 
-    for sim in range(n_simulations):
+    for sim in tqdm(range(n_simulations)):
         # Generate simulated dataset using the provided simulation function
         df_sim = simulation_func(df=df, ref_model=ref_model, **simulation_kwargs)
 
