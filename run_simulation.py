@@ -39,7 +39,7 @@ N_QUESTIONS_PER_MODEL = (
 
 # Parameters for round-based sampling
 N_ROUNDS = 15
-QUESTIONS_PER_ROUND = 25
+QUESTIONS_PER_ROUND = 100
 MODELS_PER_ROUND_MEAN = 40
 DATASET_WEIGHT = 0.5
 SIMULATION_METHOD = "round_based"
@@ -177,7 +177,7 @@ def validate_processed_data(df):
 
 def main():
     print("Loading data...")
-    df = process_raw_data(f"{INPUT_FOLDER}/leaderboard_human.pkl")
+    df = process_raw_data(f"{INPUT_FOLDER}/leaderboard_llm.pkl")
     df.to_csv(f"{PROCESSED_FOLDER}/processed_dataset.csv", index=False)
 
     # Load the processed dataset

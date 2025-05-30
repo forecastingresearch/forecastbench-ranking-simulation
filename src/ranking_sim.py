@@ -16,6 +16,8 @@ def process_raw_data(input_name):
         df_temp = pkl[ii]["df"]
         df_temp["model"] = pkl[ii]["model"]
         df_temp["organization"] = pkl[ii]["organization"]
+        # drop combo questions
+        df_temp = df_temp[df_temp["direction"] == ()]
         df = pd.concat([df, df_temp])
     df = df.reset_index(drop=True)
 
@@ -302,6 +304,35 @@ def simulate_random_sampling(df, n_questions_per_model, ref_model="Always 0.5"):
     return df_results
 
 
+def simple_sample(df, n):
+    groups = df.groupby(["question_type", "horizon"])["question_id"].unique()
+
+    dataset_groups = groups["dataset"]
+    n_horizons = len(dataset_groups)
+
+    n_dataset_horizon = n // 2 // n_horizons
+    n_market = n - n_dataset_horizon * n_horizons
+
+    # Market questions: choose randomly across all market questions
+    all_market_questions = np.concatenate([g for g in groups["market"].values])
+    market_questions = np.random.choice(all_market_questions, size=n_market, replace=True)
+
+    # Dataset Questions: choose randomly for one horizon, then get the same questions at all horizons
+    df0 = df[df["question_id"].isin(dataset_groups.values[0])]
+    sampled_rows = df0.sample(n=n_dataset_horizon, replace=True)
+    dataset_questions_list = []
+    for _, row in sampled_rows.iterrows():
+        subset = df[
+            (df["source"] == row["source"])
+            & (df["id"] == row["id"])
+            & (df["forecast_due_date"] == row["forecast_due_date"])
+        ]
+        dataset_questions_list.extend(subset["question_id"].unique())
+    dataset_questions = np.array(dataset_questions_list)
+
+    return np.concatenate([market_questions, dataset_questions])
+
+
 def simulate_round_based(
     df,
     n_rounds=15,
@@ -319,7 +350,6 @@ def simulate_round_based(
     """
     # Get parameters
     models = df["model"].unique()
-    questions = df["question_id"].unique()
 
     # Check if ref_model exists
     if ref_model is None or ref_model not in models:
@@ -333,9 +363,7 @@ def simulate_round_based(
     rounds = []
     for round_id in range(n_rounds):
         # Sample questions with replacement for this round
-        round_questions = np.random.choice(
-            questions, size=questions_per_round, replace=True
-        )
+        round_questions = simple_sample(df=df, n=questions_per_round)
 
         # Sample number of models for this round (Poisson, but
         # at least 1 non-ref model, and less than total available
