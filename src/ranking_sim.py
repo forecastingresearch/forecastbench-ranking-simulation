@@ -18,6 +18,11 @@ def process_raw_data(input_name):
         df = pd.concat([df, df_temp])
     df = df.reset_index(drop=True)
 
+    if "horizon" not in df.columns:
+        df["resolution_date"] = pd.to_datetime(df["resolution_date"])
+        df["forecast_due_date"] = pd.to_datetime(df["forecast_due_date"])
+        df["horizon"] = (df["resolution_date"] - df["forecast_due_date"]).dt.days
+
     # Create a new column 'question_id' by concatenating 'source', 'id',
     # and 'horizon' columns. This is done to create a unique identifier
     # for each question/prediction
