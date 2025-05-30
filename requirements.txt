@@ -1,0 +1,4 @@
+pandas>=2.3.0
+numpy
+pyfixest>=0.29.0
+pytest>=8.4.1
