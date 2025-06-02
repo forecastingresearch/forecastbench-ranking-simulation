@@ -236,6 +236,7 @@ def main():
                     "Always 1",
                 ],
                 "pct_point_tol": 0.25,
+                "verbose": False,
             },
         ),
     }

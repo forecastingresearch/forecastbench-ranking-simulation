@@ -247,7 +247,7 @@ def median_displacement(df_true_ranking, df_sim_ranking):
 
 
 def ranking_sanity_check(
-    df_true_ranking, df_sim_ranking, model_list, pct_point_tol=0.05
+    df_true_ranking, df_sim_ranking, model_list, pct_point_tol=0.05, verbose=True
 ):
     """Simple sanity test that checks whether models in model_list
     are close to their "true" position in the simulated ranking"""
@@ -260,7 +260,20 @@ def ranking_sanity_check(
         return model_rank / max_rank
 
     test_passed = True
+
     for model in model_list:
+        # Check if model exists in both dataframes
+        if model not in df_true_ranking["model"].values:
+            if verbose:
+                print(f"Warning: Model '{model}' not found in df_true_ranking")
+            return np.nan
+
+        if model not in df_sim_ranking["model"].values:
+            if verbose:
+                print(f"Warning: Model '{model}' not found in df_sim_ranking")
+            return np.nan
+
+        # If model exists in both, proceed with the check
         model_pct_true_rank = get_pct_rank(
             df_true_ranking, model, rank_name="rank_true"
         )
@@ -272,6 +285,7 @@ def ranking_sanity_check(
         else:
             test = False
         test_passed = test_passed & test
+
     return test_passed * 1.0
 
 

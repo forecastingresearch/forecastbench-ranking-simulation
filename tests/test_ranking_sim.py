@@ -1,3 +1,5 @@
+import contextlib
+import io
 import sys
 
 import numpy as np
@@ -17,6 +19,7 @@ from ranking_sim import (
     rank_by_diff_adj_brier,
     rank_by_peer_score,
     rank_with_weighting,
+    ranking_sanity_check,
     simulate_random_sampling,
     simulate_round_based,
     spearman_correlation,
@@ -576,6 +579,216 @@ def test_top_k_retention_integration_with_tied_scores():
     assert (
         len(true_top_2_peer) >= 2
     ), "When ties exist at boundary, top-k should include all tied models"
+
+
+def test_ranking_sanity_check():
+    """Test ranking_sanity_check function with missing models and known results."""
+
+    # Test 1: Model missing from df_true_ranking
+    df_true = pd.DataFrame({"model": ["A", "B", "C"], "rank_true": [1, 2, 3]})
+
+    df_sim = pd.DataFrame({"model": ["A", "B", "C", "D"], "rank_sim": [1, 2, 3, 4]})
+
+    # Test with verbose=True (should print warning)
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+        result = ranking_sanity_check(
+            df_true,
+            df_sim,
+            model_list=["A", "B", "D"],  # D is missing from df_true
+            pct_point_tol=0.05,
+            verbose=True,
+        )
+
+    assert np.isnan(result), "Should return np.nan when model is missing"
+    assert "Warning: Model 'D' not found in df_true_ranking" in f.getvalue()
+
+    # Test with verbose=False (should not print warning)
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+        result = ranking_sanity_check(
+            df_true,
+            df_sim,
+            model_list=["A", "B", "D"],
+            pct_point_tol=0.05,
+            verbose=False,
+        )
+
+    assert np.isnan(result), "Should return np.nan when model is missing"
+    assert f.getvalue() == "", "Should not print warning when verbose=False"
+
+    # Test 2: Model missing from df_sim_ranking
+    df_true2 = pd.DataFrame({"model": ["A", "B", "C", "D"], "rank_true": [1, 2, 3, 4]})
+
+    df_sim2 = pd.DataFrame({"model": ["A", "B", "C"], "rank_sim": [1, 2, 3]})
+
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+        result = ranking_sanity_check(
+            df_true2,
+            df_sim2,
+            model_list=["B", "D"],  # D is missing from df_sim
+            pct_point_tol=0.05,
+            verbose=True,
+        )
+
+    assert np.isnan(result), "Should return np.nan when model is missing from sim"
+    assert "Warning: Model 'D' not found in df_sim_ranking" in f.getvalue()
+
+    # Test 3: All models present, all pass the test
+    df_true3 = pd.DataFrame(
+        {"model": ["A", "B", "C", "D", "E"], "rank_true": [1, 2, 3, 4, 5]}
+    )
+
+    df_sim3 = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D", "E"],
+            "rank_sim": [1, 2, 3, 4, 5],  # Exact same ranking
+        }
+    )
+
+    result = ranking_sanity_check(
+        df_true3, df_sim3, model_list=["A", "C", "E"], pct_point_tol=0.05
+    )
+
+    assert result == 1.0, "Should return 1.0 when all models have same percentile rank"
+
+    # Test 4: All models present, some fail the test
+    df_true4 = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
+            "rank_true": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        }
+    )
+
+    df_sim4 = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
+            "rank_sim": [1, 9, 3, 4, 5, 6, 7, 8, 2, 10],  # B and I swapped positions
+        }
+    )
+
+    # B: true rank 2/10 = 0.2, sim rank 9/10 = 0.9, diff = 0.7 > 0.05
+    # I: true rank 9/10 = 0.9, sim rank 2/10 = 0.2, diff = 0.7 > 0.05
+    result = ranking_sanity_check(
+        df_true4, df_sim4, model_list=["A", "B", "I"], pct_point_tol=0.05
+    )
+
+    assert result == 0.0, "Should return 0.0 when some models fail the test"
+
+    # Test 5: Edge case with tolerance
+    df_true5 = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
+            "rank_true": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        }
+    )
+
+    df_sim5 = pd.DataFrame(
+        {
+            "model": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
+            "rank_sim": [1, 2, 4, 3, 5, 6, 7, 8, 9, 10],  # C and D swapped
+        }
+    )
+
+    # C: true rank 3/10 = 0.3, sim rank 4/10 = 0.4, diff = 0.1
+    # D: true rank 4/10 = 0.4, sim rank 3/10 = 0.3, diff = 0.1
+    # With tolerance 0.15, both should pass
+    result = ranking_sanity_check(
+        df_true5, df_sim5, model_list=["C", "D"], pct_point_tol=0.15
+    )
+
+    assert result == 1.0, "Should return 1.0 when differences are within tolerance"
+
+    # With tolerance 0.05, both should fail
+    result = ranking_sanity_check(
+        df_true5, df_sim5, model_list=["C", "D"], pct_point_tol=0.05
+    )
+
+    assert result == 0.0, "Should return 0.0 when differences exceed tolerance"
+
+    # Test 6: Real-world scenario with specific models
+    df_true6 = pd.DataFrame(
+        {
+            "model": [
+                "Superforecaster median forecast",
+                "Public median forecast",
+                "Random Uniform",
+                "Always 0",
+                "Always 1",
+                "Other Model",
+            ],
+            "rank_true": [5, 15, 25, 48, 50, 30],  # Out of 50 models
+        }
+    )
+
+    df_sim6 = pd.DataFrame(
+        {
+            "model": [
+                "Superforecaster median forecast",
+                "Public median forecast",
+                "Random Uniform",
+                "Always 0",
+                "Always 1",
+                "Other Model",
+            ],
+            "rank_sim": [8, 18, 26, 47, 49, 25],  # Slightly different ranks
+        }
+    )
+
+    # Calculate expected percentile differences:
+    # Superforecaster: |5/50 - 8/50| = |0.1 - 0.16| = 0.06
+    # Public median: |15/50 - 18/50| = |0.3 - 0.36| = 0.06
+    # Random Uniform: |25/50 - 26/50| = |0.5 - 0.52| = 0.02
+    # Always 0: |48/50 - 47/50| = |0.96 - 0.94| = 0.02
+    # Always 1: |50/50 - 49/50| = |1.0 - 0.98| = 0.02
+
+    # With tolerance 0.25, all should pass
+    result = ranking_sanity_check(
+        df_true6,
+        df_sim6,
+        model_list=[
+            "Superforecaster median forecast",
+            "Public median forecast",
+            "Random Uniform",
+            "Always 0",
+            "Always 1",
+        ],
+        pct_point_tol=0.25,
+        verbose=False,
+    )
+
+    assert result == 1.0, "Should return 1.0 with large tolerance"
+
+    # With tolerance 0.05, Superforecaster and Public median should fail
+    result = ranking_sanity_check(
+        df_true6,
+        df_sim6,
+        model_list=[
+            "Superforecaster median forecast",
+            "Public median forecast",
+            "Random Uniform",
+            "Always 0",
+            "Always 1",
+        ],
+        pct_point_tol=0.05,
+        verbose=False,
+    )
+
+    assert result == 0.0, "Should return 0.0 when some exceed tight tolerance"
+
+    # Test only models within tolerance
+    result = ranking_sanity_check(
+        df_true6,
+        df_sim6,
+        model_list=["Random Uniform", "Always 0", "Always 1"],
+        pct_point_tol=0.05,
+        verbose=False,
+    )
+
+    assert (
+        result == 1.0
+    ), "Should return 1.0 when all selected models are within tolerance"
 
 
 def test_combine_rankings_with_ties():
