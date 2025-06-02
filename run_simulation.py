@@ -27,9 +27,10 @@ np.random.seed(20250527)
 
 # Configuration
 INPUT_FOLDER = "./data/raw"
+DATAFILE_NAME = "llm_and_human_leaderboard_overall.pkl"
 PROCESSED_FOLDER = "./data/processed"
 RESULTS_FOLDER = "./data/results"
-REF_MODEL = "GPT-4 (zero shot)"
+REF_MODEL = "Naive Forecaster"
 N_SIMULATIONS = 1000
 
 # Parameters for random sampling
@@ -177,7 +178,7 @@ def validate_processed_data(df):
 
 def main():
     print("Loading data...")
-    df = process_raw_data(f"{INPUT_FOLDER}/leaderboard_human.pkl")
+    df = process_raw_data(f"{INPUT_FOLDER}/{DATAFILE_NAME}")
     df.to_csv(f"{PROCESSED_FOLDER}/processed_dataset.csv", index=False)
 
     # Load the processed dataset

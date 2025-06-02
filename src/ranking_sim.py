@@ -18,6 +18,25 @@ def process_raw_data(input_name):
         df = pd.concat([df, df_temp])
     df = df.reset_index(drop=True)
 
+    # Define question type
+    df["question_type"] = df["source"].apply(
+        lambda x: (
+            "market"
+            if x in ["manifold", "infer", "metaculus", "polymarket"]
+            else "dataset"
+        )
+    )
+
+    # Calculate forecast horizon
+    df["horizon"] = np.nan
+    mask = df["question_type"] == "dataset"
+    df.loc[mask, "horizon"] = (
+        pd.to_datetime(df.loc[mask, "resolution_date"])
+        - pd.to_datetime(df.loc[mask, "forecast_due_date"])
+    ).astype(int)
+    if (df["horizon"] < 0).any():
+        raise ValueError("Some resolution dates are before forecast_due_date.")
+
     # Create a new column 'question_id' by concatenating 'source', 'id',
     # and 'horizon' columns. This is done to create a unique identifier
     # for each question/prediction
@@ -29,13 +48,6 @@ def process_raw_data(input_name):
         + df["horizon"].astype(str)
         + "-"
         + df["forecast_due_date"].astype(str)
-    )
-    df["question_type"] = df["source"].apply(
-        lambda x: (
-            "market"
-            if x in ["manifold", "infer", "metaculus", "polymarket"]
-            else "dataset"
-        )
     )
 
     # Filter out unresolved questions
