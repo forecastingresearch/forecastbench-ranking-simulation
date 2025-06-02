@@ -1282,7 +1282,7 @@ def test_evaluate_ranking_methods_oracle():
     }
     simulation_func, simulation_kwargs = simulation_methods["random_sampling"]
 
-    results_no_bss = evaluate_ranking_methods(
+    results_no_bss, _ = evaluate_ranking_methods(
         df=df,
         ranking_methods=ranking_methods_no_bss,
         evaluation_metrics=evaluation_metrics,
@@ -1409,6 +1409,7 @@ def test_bss_brier_identical_with_constant_reference():
         ).all(), "Rankings should differ with non-constant reference model"
 
 
+@pytest.mark.slow
 def test_evaluate_ranking_methods_correlation_vs_coverage():
     """Test that correlation increases with question coverage."""
     np.random.seed(42)
@@ -1473,7 +1474,7 @@ def test_evaluate_ranking_methods_correlation_vs_coverage():
         simulation_func, simulation_kwargs = simulation_methods["random_sampling"]
 
         # Perform evaluation
-        results = evaluate_ranking_methods(
+        results, _ = evaluate_ranking_methods(
             df=df,
             ranking_methods=ranking_methods,
             evaluation_metrics=evaluation_metrics,
@@ -1912,7 +1913,7 @@ def test_simulation_regression_results():
     }
 
     # Run simulation
-    results = evaluate_ranking_methods(
+    results, _ = evaluate_ranking_methods(
         df=df,
         ranking_methods=ranking_methods,
         evaluation_metrics=evaluation_metrics,
@@ -1983,7 +1984,7 @@ def test_simulation_regression_round_based_results():
     }
 
     # Run simulation
-    results = evaluate_ranking_methods(
+    results, _ = evaluate_ranking_methods(
         df=df,
         ranking_methods=ranking_methods,
         evaluation_metrics=evaluation_metrics,

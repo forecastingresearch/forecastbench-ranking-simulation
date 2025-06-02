@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """Run the ranking simulation."""
 
+import json
 import sys
 
 sys.path.append("src")
@@ -24,40 +25,140 @@ from ranking_sim import (
 
 # EXPECTED RUNTIME: ~3-4 minutes on a standard laptop with N_SIMULATIONS = 1000
 
-np.random.seed(20250527)
+# =====================================================
+# GLOBAL CONFIGURATION
+# =====================================================
+N_SIMULATIONS = 1000  # Number of simulations for each scenario
+DATASET_WEIGHT = 0.5  # Weight for dataset vs market questions
+RANDOM_SEED = 20250527  # Random seed for replicability
 
-# Configuration
 INPUT_FOLDER = "./data/raw"
 DATAFILE_NAME = "llm_and_human_leaderboard_overall.pkl"
 PROCESSED_FOLDER = "./data/processed"
 RESULTS_FOLDER = "./data/results"
-REF_MODEL = "Naive Forecaster"
-N_SIMULATIONS = 1000
 
-# Parameters for random sampling
-N_QUESTIONS_PER_MODEL = (
-    125  # Ensures ~25 overlapping questions between two models given the dataset
-)
+# =====================================================
+# SIMULATION SCENARIOS
+# =====================================================
+# Add new scenarios to this list. Each scenario is a dictionary with:
+# - name: identifier for output files
+# - description: what this scenario tests
+# - ref_model: reference model that answers all questions (used for simulation and BSS)
+# - simulation_func: the simulation function to use
+# - simulation_kwargs: parameters specific to that simulation function
 
-# Parameters for round-based sampling
-N_ROUNDS = 15
-QUESTIONS_PER_ROUND = 25
-MODELS_PER_ROUND_MEAN = 40
-DATASET_WEIGHT = 0.5
-SIMULATION_METHOD = "round_based"
+SIMULATION_SCENARIOS = [
+    {
+        "name": "random_sampling_baseline",
+        "description": "Random sampling with ~25 overlapping questions between models",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_random_sampling,
+        "simulation_kwargs": {
+            "n_questions_per_model": 125,
+        },
+    },
+    {
+        "name": "round_based_baseline",
+        "description": "Round-based sampling with 25 overlapping questions per round",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 15,
+            "questions_per_round": 25,
+            "models_per_round_mean": 40,
+        },
+    },
+    {
+        "name": "random_sampling_GPT4_reference",
+        "description": "Random sampling with GPT-4 as reference model",
+        "ref_model": "GPT-4 (zero shot)",
+        "simulation_func": simulate_random_sampling,
+        "simulation_kwargs": {
+            "n_questions_per_model": 125,
+        },
+    },
+    {
+        "name": "round_based_GPT4_reference",
+        "description": "Round-based sampling with 25 overlapping questions per round",
+        "ref_model": "GPT-4 (zero shot)",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 15,
+            "questions_per_round": 25,
+            "models_per_round_mean": 40,
+        },
+    },
+    {
+        "name": "random_sampling_small_sample",
+        "description": "Random sampling with a small sample size",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_random_sampling,
+        "simulation_kwargs": {
+            "n_questions_per_model": 30,
+        },
+    },
+    {
+        "name": "round_based_small_sample",
+        "description": "Round-based sampling with a small sample size",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 5,
+            "questions_per_round": 25,
+            "models_per_round_mean": 40,
+        },
+    },
+    {
+        "name": "random_sampling_always_half_ref",
+        "description": "Random sampling using Always 0.5 as reference. \
+            Included for sanity testing purposes.",
+        "ref_model": "Always 0.5",
+        "simulation_func": simulate_random_sampling,
+        "simulation_kwargs": {
+            "n_questions_per_model": 125,
+        },
+    },
+]
 
-# Define simulation methods
-simulation_methods = {
-    "random_sampling": (
-        simulate_random_sampling,
-        {"n_questions_per_model": N_QUESTIONS_PER_MODEL},
+# Define RANKING METHODS (shared across all scenarios)
+# NOTE: ref_model will be updated per scenario for BSS, to allow
+# for easy changes to ref_model
+BASE_RANKING_METHODS = {
+    "Brier": (rank_by_brier, "avg_brier", True, {}),
+    "Diff-Adj. Brier": (rank_by_diff_adj_brier, "avg_diff_adj_brier", True, {}),
+    "BSS (Pct.)": (
+        rank_by_bss,
+        "avg_bss",
+        False,
+        {"type": "percent"},
     ),
-    "round_based": (
-        simulate_round_based,
+    "BSS (Abs.)": (
+        rank_by_bss,
+        "avg_bss",
+        False,
+        {"type": "absolute"},
+    ),
+    "Peer Score": (rank_by_peer_score, "avg_peer_score", False, {}),
+}
+
+# Define EVALUATION METRICS (shared across all scenarios)
+EVALUATION_METRICS = {
+    "Spearman": (spearman_correlation, {}),
+    "Top-20 Retention": (top_k_retention, {"k": 20}),
+    "Top-50 Retention": (top_k_retention, {"k": 50}),
+    "Median Displacement": (median_displacement, {}),
+    "Passed Sanity": (
+        ranking_sanity_check,
         {
-            "n_rounds": N_ROUNDS,
-            "questions_per_round": QUESTIONS_PER_ROUND,
-            "models_per_round_mean": MODELS_PER_ROUND_MEAN,
+            "model_list": [
+                "Superforecaster median forecast",
+                "Public median forecast",
+                "Random Uniform",
+                "Always 0",
+                "Always 1",
+            ],
+            "pct_point_tol": 0.25,
+            "verbose": False,
         },
     ),
 }
@@ -177,6 +278,89 @@ def validate_processed_data(df):
     return True
 
 
+def get_ranking_methods_for_scenario(scenario):
+    """Create ranking methods with the correct ref_model for BSS calculations."""
+    ranking_methods = {}
+
+    for method_name, (func, metric, is_lower, kwargs) in BASE_RANKING_METHODS.items():
+        if "BSS" in method_name:
+            # Update kwargs with scenario's ref_model
+            updated_kwargs = kwargs.copy()
+            updated_kwargs["ref_model"] = scenario["ref_model"]
+            ranking_methods[method_name] = (func, metric, is_lower, updated_kwargs)
+        else:
+            # Non-BSS methods don't need ref_model
+            ranking_methods[method_name] = (func, metric, is_lower, kwargs)
+
+    return ranking_methods
+
+
+def save_scenario_config(scenario, results_folder):
+    """Save scenario configuration for reproducibility."""
+    # Create a complete config including global parameters
+    full_config = {
+        "scenario_name": scenario["name"],
+        "description": scenario["description"],
+        "ref_model": scenario["ref_model"],
+        "simulation_function": scenario["simulation_func"].__name__,
+        "simulation_kwargs": scenario["simulation_kwargs"],
+        "global_parameters": {
+            "n_simulations": N_SIMULATIONS,
+            "dataset_weight": DATASET_WEIGHT,
+            "random_seed": RANDOM_SEED,
+        },
+        "ranking_methods": list(BASE_RANKING_METHODS.keys()),
+        "evaluation_metrics": list(EVALUATION_METRICS.keys()),
+    }
+
+    config_filename = f"{results_folder}/config_{scenario['name']}.json"
+    with open(config_filename, "w") as f:
+        json.dump(full_config, f, indent=2)
+
+    return config_filename
+
+
+def run_scenario(df, scenario):
+    """Run a single simulation scenario and return results."""
+    print(f"\n{'='*60}")
+    print(f"Running scenario: {scenario['name']}")
+    print(f"Description: {scenario['description']}")
+    print(f"Method: {scenario['simulation_func'].__name__}")
+    print(f"Reference model: {scenario['ref_model']}")
+    print(f"Simulations: {N_SIMULATIONS}")
+    print(f"Parameters: {scenario['simulation_kwargs']}")
+
+    # Save scenario configuration
+    config_file = save_scenario_config(scenario, RESULTS_FOLDER)
+    print(f"Saved configuration to: {config_file}")
+
+    # Get ranking methods with correct ref_model
+    ranking_methods = get_ranking_methods_for_scenario(scenario)
+
+    # Set seed for reproducibility
+    np.random.seed(RANDOM_SEED)
+
+    # Run evaluation
+    results, error_count = evaluate_ranking_methods(
+        df=df,
+        ranking_methods=ranking_methods,
+        evaluation_metrics=EVALUATION_METRICS,
+        simulation_func=scenario["simulation_func"],
+        simulation_kwargs=scenario["simulation_kwargs"],
+        n_simulations=N_SIMULATIONS,
+        dataset_weight=DATASET_WEIGHT,
+        ref_model=scenario["ref_model"],  # Used by simulation functions
+    )
+
+    # Print status with emoji
+    if error_count == 0:
+        print("\n✅ Scenario completed successfully!")
+    else:
+        print("\n❌ Scenario completed with {error_count} errors")
+
+    return results, error_count
+
+
 def main():
     print("Loading data...")
     df = process_raw_data(f"{INPUT_FOLDER}/{DATAFILE_NAME}")
@@ -194,89 +378,62 @@ def main():
         print(f"\n❌ Data validation failed: {e}")
         sys.exit(1)
 
-    # Define ranking methods, with the following tuple elements:
-    # 1: ranking method name
-    # 2: metric name
-    # 3: is a lower score better
-    # 4: Additional kwargs to the ranking function
-    ranking_methods = {
-        "Brier": (rank_by_brier, "avg_brier", True, {}),
-        "Diff-Adj. Brier": (rank_by_diff_adj_brier, "avg_diff_adj_brier", True, {}),
-        "BSS (Pct.)": (
-            rank_by_bss,
-            "avg_bss",
-            False,
-            {"ref_model": REF_MODEL, "type": "percent"},
-        ),
-        "BSS (Abs.)": (
-            rank_by_bss,
-            "avg_bss",
-            False,
-            {"ref_model": REF_MODEL, "type": "absolute"},
-        ),
-        "Peer Score": (rank_by_peer_score, "avg_peer_score", False, {}),
-    }
+    # Run all scenarios
+    all_summaries = []
 
-    # Define evaluation metrics, with the following tuple elements:
-    # 1: evaluation metric name
-    # 2: additional kwargs to the evaluation metric function
-    evaluation_metrics = {
-        "Spearman": (spearman_correlation, {}),
-        "Top-20 Retention": (top_k_retention, {"k": 20}),
-        "Top-50 Retention": (top_k_retention, {"k": 50}),
-        "Median Displacement": (median_displacement, {}),
-        "Passed Sanity": (
-            ranking_sanity_check,
-            {
-                "model_list": [
-                    "Superforecaster median forecast",
-                    "Public median forecast",
-                    "Random Uniform",
-                    "Always 0",
-                    "Always 1",
-                ],
-                "pct_point_tol": 0.25,
-                "verbose": False,
-            },
-        ),
-    }
+    for scenario in SIMULATION_SCENARIOS:
+        # Run scenario
+        results, _ = run_scenario(df, scenario)
 
-    # Get simulation method
-    simulation_func, simulation_kwargs = simulation_methods[SIMULATION_METHOD]
-    print(f"Using simulation method: {SIMULATION_METHOD}")
+        # Save detailed results
+        results_filename = f"{RESULTS_FOLDER}/simulation_output_{scenario['name']}.csv"
+        results.to_csv(results_filename, index=False)
+        print(f"\nSaved detailed results to: {results_filename}")
 
-    print(f"Running {N_SIMULATIONS} simulations...")
-    results = evaluate_ranking_methods(
-        df=df,
-        ranking_methods=ranking_methods,
-        evaluation_metrics=evaluation_metrics,
-        simulation_func=simulation_func,
-        simulation_kwargs=simulation_kwargs,
-        n_simulations=N_SIMULATIONS,
-        dataset_weight=DATASET_WEIGHT,
-        ref_model=REF_MODEL,
-    )
-
-    # Save results
-    results.to_csv(f"{RESULTS_FOLDER}/simulation_output.csv", index=False)
-
-    # Print summary
-    summary = (
-        results.groupby("method")
-        .mean()[
-            [
-                "Spearman",
-                "Top-20 Retention",
-                "Top-50 Retention",
-                "Median Displacement",
-                "Passed Sanity",
+        # Calculate and save summary
+        summary = (
+            results.groupby("method")
+            .mean()[
+                [
+                    "Spearman",
+                    "Top-20 Retention",
+                    "Top-50 Retention",
+                    "Median Displacement",
+                    "Passed Sanity",
+                ]
             ]
-        ]
-        .sort_values(by="Spearman", ascending=False)
-    )
+            .sort_values(by="Spearman", ascending=False)
+        )
 
-    print("\nResults:")
-    print(summary)
+        # Add scenario metadata
+        summary["scenario"] = scenario["name"]
+
+        # Save individual summary
+        summary_filename = f"{RESULTS_FOLDER}/summary_{scenario['name']}.csv"
+        summary.to_csv(summary_filename)
+        print(f"Saved summary to: {summary_filename}")
+
+        print(f"\nResults for {scenario['name']}:")
+        print(
+            summary[
+                [
+                    "Spearman",
+                    "Top-20 Retention",
+                    "Top-50 Retention",
+                    "Median Displacement",
+                    "Passed Sanity",
+                ]
+            ]
+        )
+
+        # Collect for combined summary
+        summary_reset = summary.reset_index()
+        all_summaries.append(summary_reset)
+
+    # Save combined summary
+    combined_summary = pd.concat(all_summaries, ignore_index=True)
+    combined_summary.to_csv(f"{RESULTS_FOLDER}/all_scenarios_summary.csv", index=False)
+    print(f"\n\nSaved combined summary to: {RESULTS_FOLDER}/all_scenarios_summary.csv")
 
 
 if __name__ == "__main__":

@@ -152,11 +152,7 @@ def rank_by_bss(df, ref_model="Naive Forecaster", type="percent"):
             np.nan,
         )
     elif type == "absolute":
-        df_filtered["bss"] = np.where(
-            df_filtered["ref_brier"] > 0,
-            df_filtered["ref_brier"] - df_filtered["brier_score"],
-            np.nan,
-        )
+        df_filtered["bss"] = df_filtered["ref_brier"] - df_filtered["brier_score"]
     else:
         raise ValueError(f"Unkown type: '{type}'")
 
@@ -469,6 +465,8 @@ def evaluate_ranking_methods(
 
     # Run simulations
     results_list = []
+    error_count = 0
+
     for sim in range(n_simulations):
         # Generate simulated dataset using the provided simulation function
         df_sim = simulation_func(df=df, ref_model=ref_model, **simulation_kwargs)
@@ -506,6 +504,7 @@ def evaluate_ranking_methods(
                 results_list.append(result_row)
 
             except Exception as e:
+                error_count += 1
                 print(f"Error in {method_name} at simulation {sim}: {e}")
                 continue
 
@@ -517,7 +516,7 @@ def evaluate_ranking_methods(
     col_order = ["simulation_id", "method"] + metric_cols
     df_results = df_results[col_order]
 
-    return df_results
+    return df_results, error_count
 
 
 # =================
