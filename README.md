@@ -36,7 +36,7 @@ Clone the Github repo. Create the expected data directories
 mkdir -p data/{raw,processed,results}
 ```
 
-Copy the `leaderboard_human.pkl` file into `data/raw`.
+The `llm_and_human_leaderboard_overall.pkl` file should be downloaded from the FRI Google Drive [here](https://drive.google.com/drive/folders/1p1x4Ywrj39hPat-Y7miHX-UXGJvMGqgB?usp=drive_link) and placed into `data/raw`.
 
 ## Usage
 
