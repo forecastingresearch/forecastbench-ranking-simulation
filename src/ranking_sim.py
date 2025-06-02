@@ -126,7 +126,7 @@ def rank_by_diff_adj_brier(df):
     return model_scores
 
 
-def rank_by_bss(df, ref_model="Always 0.5"):
+def rank_by_bss(df, ref_model="Naive Forecaster", type="percent"):
     df = df.copy()
     df["brier_score"] = brier_score(df)
 
@@ -145,11 +145,20 @@ def rank_by_bss(df, ref_model="Always 0.5"):
 
     # Calculate Brier skill score per question
     df_filtered["ref_brier"] = df_filtered["question_id"].map(ref_brier_by_question)
-    df_filtered["bss"] = np.where(
-        df_filtered["ref_brier"] > 0,
-        1 - (df_filtered["brier_score"] / df_filtered["ref_brier"]),
-        np.nan,
-    )
+    if type == "percent":
+        df_filtered["bss"] = np.where(
+            df_filtered["ref_brier"] > 0,
+            1 - (df_filtered["brier_score"] / df_filtered["ref_brier"]),
+            np.nan,
+        )
+    elif type == "absolute":
+        df_filtered["bss"] = np.where(
+            df_filtered["ref_brier"] > 0,
+            df_filtered["ref_brier"] - df_filtered["brier_score"],
+            np.nan,
+        )
+    else:
+        raise ValueError(f"Unkown type: '{type}'")
 
     # Calculate average scores by model
     model_scores = df_filtered[["model", "bss"]].groupby("model").mean().reset_index()
@@ -235,6 +244,35 @@ def median_displacement(df_true_ranking, df_sim_ranking):
     df_merged["displacement"] = (df_merged["rank_true"] - df_merged["rank_sim"]).abs()
     median_displacement = df_merged["displacement"].median()
     return median_displacement
+
+
+def ranking_sanity_check(
+    df_true_ranking, df_sim_ranking, model_list, pct_point_tol=0.05
+):
+    """Simple sanity test that checks whether models in model_list
+    are close to their "true" position in the simulated ranking"""
+
+    def get_pct_rank(df, model, rank_name):
+        """Helper function to get percentage rank for a model in a dataframe"""
+        mask = df["model"] == model
+        model_rank = df.loc[mask, rank_name].values[0]
+        max_rank = df[rank_name].max()
+        return model_rank / max_rank
+
+    test_passed = True
+    for model in model_list:
+        model_pct_true_rank = get_pct_rank(
+            df_true_ranking, model, rank_name="rank_true"
+        )
+        model_pct_sim_rank = get_pct_rank(df_sim_ranking, model, rank_name="rank_sim")
+
+        # Check if the percentile ranks are within tolerance
+        if np.abs(model_pct_true_rank - model_pct_sim_rank) < pct_point_tol:
+            test = True
+        else:
+            test = False
+        test_passed = test_passed & test
+    return test_passed * 1.0
 
 
 # ==========
