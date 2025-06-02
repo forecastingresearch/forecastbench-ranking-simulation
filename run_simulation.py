@@ -15,6 +15,7 @@ from ranking_sim import (
     rank_by_bss,
     rank_by_diff_adj_brier,
     rank_by_peer_score,
+    ranking_sanity_check,
     simulate_random_sampling,
     simulate_round_based,
     spearman_correlation,
@@ -201,7 +202,18 @@ def main():
     ranking_methods = {
         "Brier": (rank_by_brier, "avg_brier", True, {}),
         "Diff-Adj. Brier": (rank_by_diff_adj_brier, "avg_diff_adj_brier", True, {}),
-        "BSS": (rank_by_bss, "avg_bss", False, {"ref_model": REF_MODEL}),
+        "BSS (Pct.)": (
+            rank_by_bss,
+            "avg_bss",
+            False,
+            {"ref_model": REF_MODEL, "type": "percent"},
+        ),
+        "BSS (Abs.)": (
+            rank_by_bss,
+            "avg_bss",
+            False,
+            {"ref_model": REF_MODEL, "type": "absolute"},
+        ),
         "Peer Score": (rank_by_peer_score, "avg_peer_score", False, {}),
     }
 
@@ -213,6 +225,19 @@ def main():
         "Top-20 Retention": (top_k_retention, {"k": 20}),
         "Top-50 Retention": (top_k_retention, {"k": 50}),
         "Median Displacement": (median_displacement, {}),
+        "Passed Sanity": (
+            ranking_sanity_check,
+            {
+                "model_list": [
+                    "Superforecaster median forecast",
+                    "Public median forecast",
+                    "Random Uniform",
+                    "Always 0",
+                    "Always 1",
+                ],
+                "pct_point_tol": 0.25,
+            },
+        ),
     }
 
     # Get simulation method
@@ -238,7 +263,13 @@ def main():
     summary = (
         results.groupby("method")
         .mean()[
-            ["Spearman", "Top-20 Retention", "Top-50 Retention", "Median Displacement"]
+            [
+                "Spearman",
+                "Top-20 Retention",
+                "Top-50 Retention",
+                "Median Displacement",
+                "Passed Sanity",
+            ]
         ]
         .sort_values(by="Spearman", ascending=False)
     )
