@@ -23,7 +23,8 @@ from ranking_sim import (
     top_k_retention,
 )
 
-# EXPECTED RUNTIME: ~3-4 minutes on a standard laptop with N_SIMULATIONS = 1000
+# EXPECTED RUNTIME: ~3-4 minutes per scenario on a standard laptop with N_SIMULATIONS = 1000;
+# With 8 scenarios, total runtime is around 30 minutes.
 
 # =====================================================
 # GLOBAL CONFIGURATION
@@ -127,7 +128,8 @@ SIMULATION_SCENARIOS = [
             "n_rounds": 15,
             "questions_per_round": 25,
             "models_per_round_mean": 40,
-            "skill_temperature": lambda round_id: 0.0 + 2 * round_id,
+            "skill_temperature": lambda round_id: -20
+            + 2.857 * round_id,  # Linear increase from -20 to 20
         },
     },
     {
@@ -139,7 +141,7 @@ SIMULATION_SCENARIOS = [
             "n_rounds": 15,
             "questions_per_round": 25,
             "models_per_round_mean": 40,
-            "difficulty_temperature": lambda round_id: -10.0 if round_id <= 4 else 0.0,
+            "difficulty_temperature": lambda round_id: -10.0 if round_id <= 5 else 0.0,
         },
     },
 ]
