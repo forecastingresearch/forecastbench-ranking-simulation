@@ -1946,6 +1946,104 @@ def test_simulation_regression_results():
                 got {actual_value:.6f}"
 
 
+def test_skill_drift_improves_quality_avg():
+    import numpy as np
+    import pandas as pd
+    from scipy.stats import spearmanr
+
+    # --- tiny synthetic data with clear skill hierarchy ---------
+    models = ["RefModel"] + [f"M{i}" for i in range(5)]
+    briers = {
+        "RefModel": 0.10,
+        "M0": 0.18,
+        "M1": 0.16,
+        "M2": 0.14,
+        "M3": 0.12,
+        "M4": 0.08,
+    }
+    rows = []
+    for q in range(30):
+        for m in models:
+            p = 1 - briers[m] if q % 2 else briers[m]
+            rows.append(
+                dict(
+                    model=m,
+                    question_id=f"q{q}",
+                    forecast=p,
+                    resolved_to=q % 2,
+                    question_type="toy",
+                )
+            )
+    df = pd.DataFrame(rows)
+
+    # --- run many replicates and average ------------------------
+    R, REP = 8, 200
+    alpha = np.linspace(0, 50, R)
+    mean_by_round = np.zeros(R)
+    for seed in range(REP):
+        np.random.seed(seed)
+        sim = simulate_round_based(
+            df,
+            n_rounds=R,
+            questions_per_round=10,
+            models_per_round_mean=3,
+            ref_model="RefModel",
+            skill_temperature=lambda r: alpha[r],
+            difficulty_temperature=None,
+        )
+        sim["brier"] = brier_score(sim)
+        mean_by_round += (
+            sim[sim["model"] != "RefModel"].groupby("round_id")["brier"].mean().values
+        )
+    mean_by_round /= REP
+
+    rho, _ = spearmanr(range(R), mean_by_round)
+    assert rho < -0.90, f"Expected strong negative trend, got ρ={rho:.2f}"
+
+
+def test_difficulty_drift_hard_share_grows():
+    import numpy as np
+    import pandas as pd
+    from scipy.stats import spearmanr
+
+    # --- toy data with one easy & one hard question -------------
+    rows = []
+    for q, p in [("easy", 0.9), ("hard", 0.1)]:
+        for m in ["RefModel", "A", "B"]:
+            rows.append(
+                dict(
+                    model=m,
+                    question_id=q,
+                    forecast=p if m != "RefModel" else 0.5,
+                    resolved_to=1,
+                    question_type="toy",
+                )
+            )
+    df = pd.DataFrame(rows)
+
+    # --- simulate many times and average ------------------------
+    R, REP = 8, 300
+    beta = np.linspace(0, 15, R)
+    hard_counts = np.zeros(R)
+    for seed in range(REP):
+        np.random.seed(seed)
+        sim = simulate_round_based(
+            df,
+            n_rounds=R,
+            questions_per_round=1,
+            models_per_round_mean=2,
+            ref_model="RefModel",
+            skill_temperature=None,
+            difficulty_temperature=lambda r: beta[r],
+        )
+        hard = (sim["question_id"] == "hard").groupby(sim["round_id"]).any()
+        hard_counts += hard.reindex(range(R), fill_value=False).astype(int).values
+    hard_share = hard_counts / REP
+
+    rho, _ = spearmanr(range(R), hard_share)
+    assert rho > 0.90, f"Hard-share not rising enough (ρ={rho:.2f})"
+
+
 @pytest.mark.slow
 def test_simulation_regression_round_based_results():
     """

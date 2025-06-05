@@ -118,6 +118,30 @@ SIMULATION_SCENARIOS = [
             "n_questions_per_model": 125,
         },
     },
+    {
+        "name": "round_based_model_drift",
+        "description": "Round-based sampling with increasing model quality over time.",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 15,
+            "questions_per_round": 25,
+            "models_per_round_mean": 40,
+            "skill_temperature": lambda round_id: 0.0 + 2 * round_id,
+        },
+    },
+    {
+        "name": "round_based_question_drift",
+        "description": "Round-based sampling with some easier rounds.",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 15,
+            "questions_per_round": 25,
+            "models_per_round_mean": 40,
+            "difficulty_temperature": lambda round_id: -10.0 if round_id <= 4 else 0.0,
+        },
+    },
 ]
 
 # Define RANKING METHODS (shared across all scenarios)
@@ -297,13 +321,33 @@ def get_ranking_methods_for_scenario(scenario):
 
 def save_scenario_config(scenario, results_folder):
     """Save scenario configuration for reproducibility."""
+    # Create a serializable version of simulation_kwargs
+    serializable_kwargs = {}
+    for key, value in scenario["simulation_kwargs"].items():
+        if callable(value):
+            # Convert function to a string representation
+            if hasattr(value, "__name__"):
+                serializable_kwargs[key] = f"<function {value.__name__}>"
+            else:
+                # For lambda functions, try to get source code
+                import inspect
+
+                try:
+                    serializable_kwargs[key] = (
+                        f"<lambda: {inspect.getsource(value).strip()}>"
+                    )
+                except Exception:
+                    serializable_kwargs[key] = "<function: not serializable>"
+        else:
+            serializable_kwargs[key] = value
+
     # Create a complete config including global parameters
     full_config = {
         "scenario_name": scenario["name"],
         "description": scenario["description"],
         "ref_model": scenario["ref_model"],
         "simulation_function": scenario["simulation_func"].__name__,
-        "simulation_kwargs": scenario["simulation_kwargs"],
+        "simulation_kwargs": serializable_kwargs,
         "global_parameters": {
             "n_simulations": N_SIMULATIONS,
             "dataset_weight": DATASET_WEIGHT,

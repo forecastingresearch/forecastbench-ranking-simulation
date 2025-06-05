@@ -362,6 +362,8 @@ def simulate_round_based(
     questions_per_round=25,
     models_per_round_mean=40,
     ref_model="Always 0.5",
+    skill_temperature=None,
+    difficulty_temperature=None,
 ):
     """
     Simulate dataset using round-based sampling.
@@ -370,7 +372,34 @@ def simulate_round_based(
     from the full set of questions. For each round, we sample
     which models participate. When a model participates in a round,
     it answers ALL questions in that round.
+
+    In this function, skill_temperature and difficulty_temperature
+    are used to model potential model and/or question drift over time.
+    In particular:
+
+    - skill_temperature: Controls bias toward higher-skill models.
+        - None or 0 = uniform sampling
+        - > 0 = favor better models (lower Brier scores)
+        - Can be a float (constant) or function of round number
+    - difficulty_temperature: Controls question difficulty bias.
+        - None or 0 = uniform sampling
+        - > 0 = favor harder questions
+        - < 0 = favor easier questions
+        - Can be a float (constant) or function of round number
+
     """
+
+    def _temperature_lookup(temperature, round_id):
+        if temperature is None:
+            return np.nan
+        return temperature(round_id) if callable(temperature) else float(temperature)
+
+    def _softmax_weights(x, temp):
+        if temp == 0 or np.isnan(temp):
+            return None
+        w = np.exp(temp * x)
+        return w / w.sum()
+
     # Get parameters
     models = df["model"].unique()
     questions = df["question_id"].unique()
@@ -383,12 +412,44 @@ def simulate_round_based(
     other_models = [m for m in models if m != ref_model]
     n_non_reference_models = len(other_models)
 
+    # Pre-compute skill and difficulty if drift is enabled
+    use_model_drift = skill_temperature is not None
+    use_question_drift = difficulty_temperature is not None
+
+    if use_model_drift or use_question_drift:
+        df_temp = df.copy()
+        df_temp["brier_score"] = brier_score(df_temp)
+
+    if use_model_drift:
+        model_skills = (
+            df_temp[["model", "brier_score"]].groupby("model")["brier_score"].mean()
+        )
+        other_model_skills = model_skills.loc[other_models].to_numpy(float)
+        other_model_skills = (-1) * other_model_skills  # Lower Brier is better
+
+    if use_question_drift:
+        question_difficulties = (
+            df_temp[["question_id", "brier_score"]]
+            .groupby("question_id")["brier_score"]
+            .mean()
+        )
+        question_difficulties = question_difficulties.loc[questions].to_numpy(float)
+
     # Create rounds by sampling questions with replacement
     rounds = []
     for round_id in range(n_rounds):
+        # Get temperature values for this round
+        alpha_r = _temperature_lookup(skill_temperature, round_id)
+        beta_r = _temperature_lookup(difficulty_temperature, round_id)
+
         # Sample questions with replacement for this round
+        question_probs = (
+            _softmax_weights(question_difficulties, beta_r)
+            if use_question_drift
+            else None
+        )
         round_questions = np.random.choice(
-            questions, size=questions_per_round, replace=True
+            questions, size=questions_per_round, replace=True, p=question_probs
         )
 
         # Sample number of models for this round (Poisson, but
@@ -397,10 +458,13 @@ def simulate_round_based(
         n_models_this_round = max(1, np.random.poisson(models_per_round_mean))
         n_models_this_round = min(n_models_this_round, n_non_reference_models)
 
-        # Randomly select which models participate in this round;
+        # Sample models that participate in this round;
         # sampling without replacement
+        other_model_probs = (
+            _softmax_weights(other_model_skills, alpha_r) if use_model_drift else None
+        )
         selected_models = np.random.choice(
-            other_models, size=n_models_this_round, replace=False
+            other_models, size=n_models_this_round, replace=False, p=other_model_probs
         )
 
         # Add reference model to the list
