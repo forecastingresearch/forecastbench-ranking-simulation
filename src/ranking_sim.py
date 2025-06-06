@@ -397,17 +397,6 @@ def simulate_round_based(
 
     """
 
-    def _temperature_lookup(temperature, round_id):
-        if temperature is None:
-            return np.nan
-        return temperature(round_id) if callable(temperature) else float(temperature)
-
-    def _softmax_weights(x, temp):
-        if temp == 0 or np.isnan(temp):
-            return None
-        w = np.exp(temp * x)
-        return w / w.sum()
-
     # Get parameters
     models = df["model"].unique()
     questions = df["question_id"].unique()
@@ -455,12 +444,12 @@ def simulate_round_based(
 
     for round_id in range(n_rounds):
         # Get temperature values for this round
-        alpha_r = _temperature_lookup(skill_temperature, round_id)
-        beta_r = _temperature_lookup(difficulty_temperature, round_id)
+        alpha_r = temperature_lookup(skill_temperature, round_id)
+        beta_r = temperature_lookup(difficulty_temperature, round_id)
 
         # Sample questions with replacement for this round
         question_probs = (
-            _softmax_weights(question_difficulties, beta_r)
+            softmax_weights(question_difficulties, beta_r)
             if use_question_drift
             else None
         )
@@ -478,7 +467,7 @@ def simulate_round_based(
         # sampling WITHOUT replacement
         if round_id == 0:
             other_model_probs = (
-                _softmax_weights(other_model_skills, alpha_r)
+                softmax_weights(other_model_skills, alpha_r)
                 if use_model_drift
                 else None
             )
@@ -520,7 +509,7 @@ def simulate_round_based(
                             available_models
                         ].to_numpy(float)
                     available_models_probs = (
-                        _softmax_weights(available_models_skills, alpha_r)
+                        softmax_weights(available_models_skills, alpha_r)
                         if use_model_drift
                         else None
                     )
@@ -744,3 +733,16 @@ def rank_with_weighting(
         is_lower_metric_better=is_lower_metric_better,
         dataset_weight=dataset_weight,
     )
+
+
+def temperature_lookup(temperature, round_id):
+    if temperature is None:
+        return np.nan
+    return temperature(round_id) if callable(temperature) else float(temperature)
+
+
+def softmax_weights(x, temp):
+    if temp == 0 or np.isnan(temp):
+        return None
+    w = np.exp(temp * x)
+    return w / w.sum()
