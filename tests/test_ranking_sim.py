@@ -2117,3 +2117,41 @@ def test_simulation_regression_round_based_results():
                 actual_value, expected_value, atol=0.00001
             ), f"{method} {metric}: expected {expected_value:.6f}, \
                 got {actual_value:.6f}"
+
+
+def test_persistence_60_percent():
+    np.random.seed(42)
+
+    # Create dataset
+    question_ids = [f"q{i}" for i in range(5)]
+    models = ["Always 0.5"] + [f"model_{i}" for i in range(150)]
+
+    df = pd.DataFrame(
+        [
+            dict(
+                model=m,
+                question_id=q,
+                forecast=0.5,
+                resolved_to=0,
+                question_type="dataset",
+            )
+            for m in models
+            for q in question_ids
+        ]
+    )
+
+    # Simulate dataset
+    sim = simulate_round_based(
+        df,
+        n_rounds=2,
+        questions_per_round=5,
+        models_per_round_mean=10,
+        ref_model="Always 0.5",
+        model_persistence=0.6,
+    )
+
+    # Collect non-reference models in each round
+    r0 = set(sim.loc[sim.round_id == 0, "model"]) - {"Always 0.5"}
+    r1 = set(sim.loc[sim.round_id == 1, "model"]) - {"Always 0.5"}
+
+    assert len(r0 & r1) == np.floor(0.6 * len(r0))  # 60 % persistence
