@@ -504,6 +504,11 @@ def simulate_round_based(
             n_new_models = max(0, n_models_this_round - n_continuing_models)
 
             if n_new_models > 0:
+                # Known edge case: Sometimes a model from previous_round_models
+                # may be selected as a new model as it is included in
+                # available_models below; that can increase the actual
+                # model persistence rate above the nominal rate when
+                # we need to sample many models
                 available_models = [
                     m for m in other_models if m not in continuing_models
                 ]
