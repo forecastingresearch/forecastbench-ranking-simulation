@@ -425,6 +425,10 @@ def simulate_round_based(
         df_temp["brier_skill"] = (-1) * df_temp["brier_score"]  # Lower Brier is better
 
     if use_model_drift:
+        # TODO: Add weighting by dataset/market questions;
+        # Currently, the codebase doesn't handle missing cases when no
+        # dataset or market questions are present, causing some unit
+        # tests to fail
         model_skills = (
             df_temp[["model", "brier_skill"]].groupby("model")["brier_skill"].mean()
         )
