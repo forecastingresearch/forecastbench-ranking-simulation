@@ -52,19 +52,34 @@ RESULTS_FOLDER = "./data/results"
 SIMULATION_SCENARIOS = [
     {
         "name": "random_sampling_baseline",
-        "description": "Random sampling with ~25 overlapping questions between models",
+        "description": "Random sampling with ~30 overlapping questions between models",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_random_sampling,
         "simulation_kwargs": {
+            # With 473 questions to sample from, total epxected
+            # number of overlapping questinos between two models is
+            # 473 * (n_questions_per_model / 473) * (n_questions_per_model / 473) =
             "n_questions_per_model": 125,
         },
     },
     {
         "name": "round_based_baseline",
-        "description": "Round-based sampling with 25 overlapping questions per round",
+        "description": "Round-based sampling with ~30 overlapping questions per round, \
+            and ~100 questions per model overall; retention between rounds is ~30%",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_round_based,
         "simulation_kwargs": {
+            # With 473 questions to sample from and 141 models
+            # to sample from, the total expected number of overlapping
+            # questions between two models is:
+            # n_rounds * (models_per_round_mean / 141)
+            #   * (models_per_round_mean - 1) / 141) * questions_per_round;
+            # (-1) because we sample models without replacement
+            # Total number of expected questions per model is
+            # n_rounds * questions_per_round * (models_per_round_mean / 141)
+            # Probability that a model participats in round R + 1, conditional
+            # on participating in round R is:
+            # models_per_round_mean / 141
             "n_rounds": 15,
             "questions_per_round": 25,
             "models_per_round_mean": 40,
@@ -92,7 +107,8 @@ SIMULATION_SCENARIOS = [
     },
     {
         "name": "random_sampling_small_sample",
-        "description": "Random sampling with a small sample size",
+        "description": "Random sampling with a small sample size \
+              with ~2 overlapping questions between models",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_random_sampling,
         "simulation_kwargs": {
@@ -101,12 +117,13 @@ SIMULATION_SCENARIOS = [
     },
     {
         "name": "round_based_small_sample",
-        "description": "Round-based sampling with a small sample size",
+        "description": "Round-based sampling with a small sample size \
+              with ~2 overlapping questinos between models",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_round_based,
         "simulation_kwargs": {
             "n_rounds": 5,
-            "questions_per_round": 25,
+            "questions_per_round": 5,
             "models_per_round_mean": 40,
         },
     },
@@ -122,20 +139,23 @@ SIMULATION_SCENARIOS = [
     },
     {
         "name": "round_based_model_drift",
-        "description": "Round-based sampling with increasing model quality over time.",
+        "description": "Round-based sampling with increasing model quality over time; \
+            calibrated to yield a ~0.05 Brier improvement from first to final round in \
+            average model performance.",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_round_based,
         "simulation_kwargs": {
             "n_rounds": 15,
             "questions_per_round": 25,
             "models_per_round_mean": 40,
-            "skill_temperature": lambda round_id: -20
-            + 2.857 * round_id,  # Linear increase from -20 to 20
+            "skill_temperature": lambda round_id: -5
+            + 0.714 * round_id,  # Linear increase from -5 to 5 from round_id = 0 to 14
         },
     },
     {
         "name": "round_based_question_drift",
-        "description": "Round-based sampling with some easier rounds.",
+        "description": "Round-based sampling with some easier rounds; easier rounds \
+            have questions with ~0.08 better Brier scores.",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_round_based,
         "simulation_kwargs": {
@@ -143,6 +163,34 @@ SIMULATION_SCENARIOS = [
             "questions_per_round": 25,
             "models_per_round_mean": 40,
             "difficulty_temperature": lambda round_id: -10.0 if round_id <= 5 else 0.0,
+        },
+    },
+    {
+        "name": "round_based_with_model_persistence",
+        "description": "Round-based sampling with baseline parameters \
+              and 70% model persistence across rounds",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 15,
+            "questions_per_round": 25,
+            "models_per_round_mean": 40,
+            "model_persistence": 0.70,
+        },
+    },
+    {
+        "name": "round_based_with_model_persistence_and_drift",
+        "description": "Round-based sampling with model drift \
+              and 70% model persistence across rounds",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 15,
+            "questions_per_round": 25,
+            "models_per_round_mean": 40,
+            "skill_temperature": lambda round_id: -5
+            + 0.714 * round_id,  # Linear increase from -5 to 5 from round_id = 0 to 14
+            "model_persistence": 0.70,
         },
     },
 ]
