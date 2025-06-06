@@ -364,6 +364,7 @@ def simulate_round_based(
     ref_model="Always 0.5",
     skill_temperature=None,
     difficulty_temperature=None,
+    model_persistence=0.0,
 ):
     """
     Simulate dataset using round-based sampling.
@@ -374,7 +375,10 @@ def simulate_round_based(
     it answers ALL questions in that round.
 
     In this function, skill_temperature and difficulty_temperature
-    are used to model potential model and/or question drift over time.
+    are used to model potential model and/or question drift over time,
+    while model_persistence is used to control how likely a model
+    to participate in round R + 1, given that it participated in round R.
+
     In particular:
 
     - skill_temperature: Controls bias toward higher-skill models.
@@ -386,6 +390,10 @@ def simulate_round_based(
         - > 0 = favor harder questions
         - < 0 = favor easier questions
         - Can be a float (constant) or function of round number
+    - model_persistence: Probability (0-1) that a model continues to the next round.
+        - 0 = no persistence
+        - 0.7 = 70% of models continue (randomly selected)
+        - 1 = all models continue
 
     """
 
@@ -404,7 +412,13 @@ def simulate_round_based(
     models = df["model"].unique()
     questions = df["question_id"].unique()
 
-    # Check if ref_model exists
+    # Check input data
+    if not isinstance(model_persistence, float):
+        raise ValueError("model_persistence must be a float")
+
+    if not (0 <= model_persistence <= 1):
+        raise ValueError("model_persistence must be between 0 and 1")
+
     if ref_model is None or ref_model not in models:
         raise ValueError("Reference model not provided or not found in data.")
 
@@ -419,13 +433,13 @@ def simulate_round_based(
     if use_model_drift or use_question_drift:
         df_temp = df.copy()
         df_temp["brier_score"] = brier_score(df_temp)
+        df_temp["brier_skill"] = (-1) * df_temp["brier_score"]  # Lower Brier is better
 
     if use_model_drift:
         model_skills = (
-            df_temp[["model", "brier_score"]].groupby("model")["brier_score"].mean()
+            df_temp[["model", "brier_skill"]].groupby("model")["brier_skill"].mean()
         )
         other_model_skills = model_skills.loc[other_models].to_numpy(float)
-        other_model_skills = (-1) * other_model_skills  # Lower Brier is better
 
     if use_question_drift:
         question_difficulties = (
@@ -437,6 +451,8 @@ def simulate_round_based(
 
     # Create rounds by sampling questions with replacement
     rounds = []
+    previous_round_models = []
+
     for round_id in range(n_rounds):
         # Get temperature values for this round
         alpha_r = _temperature_lookup(skill_temperature, round_id)
@@ -459,16 +475,68 @@ def simulate_round_based(
         n_models_this_round = min(n_models_this_round, n_non_reference_models)
 
         # Sample models that participate in this round;
-        # sampling without replacement
-        other_model_probs = (
-            _softmax_weights(other_model_skills, alpha_r) if use_model_drift else None
-        )
-        selected_models = np.random.choice(
-            other_models, size=n_models_this_round, replace=False, p=other_model_probs
-        )
+        # sampling WITHOUT replacement
+        if round_id == 0:
+            other_model_probs = (
+                _softmax_weights(other_model_skills, alpha_r)
+                if use_model_drift
+                else None
+            )
+            selected_models = np.random.choice(
+                other_models,
+                size=n_models_this_round,
+                replace=False,
+                p=other_model_probs,
+            ).tolist()
+        else:
+            n_continuing_target = int(
+                np.floor(model_persistence * len(previous_round_models))
+            )
+            if n_continuing_target > 0:
+                continuing_models = np.random.choice(
+                    previous_round_models,
+                    size=n_continuing_target,
+                    replace=False,
+                ).tolist()
+            else:
+                continuing_models = []
+            n_continuing_models = len(continuing_models)
+            n_new_models = max(0, n_models_this_round - n_continuing_models)
+
+            if n_new_models > 0:
+                available_models = [
+                    m for m in other_models if m not in continuing_models
+                ]
+                if len(available_models) < n_new_models:
+                    selected_models = continuing_models + available_models
+                else:
+                    if use_model_drift:
+                        available_models_skills = model_skills.loc[
+                            available_models
+                        ].to_numpy(float)
+                    available_models_probs = (
+                        _softmax_weights(available_models_skills, alpha_r)
+                        if use_model_drift
+                        else None
+                    )
+                    selected_new_models = np.random.choice(
+                        available_models,
+                        size=n_new_models,
+                        replace=False,
+                        p=available_models_probs,
+                    ).tolist()
+                    selected_models = continuing_models + selected_new_models
+            elif n_new_models == 0:
+                # Note that this can mean that the actual number
+                # of models in this round is higher than the
+                # randomly drawn n_models_this_round
+                selected_models = continuing_models
+
+        # Update previous round models for the next iteration
+        previous_round_models = selected_models
 
         # Add reference model to the list
-        round_models = [ref_model] + selected_models.tolist()
+        round_models = [ref_model] + selected_models
 
         rounds.append(
             {
