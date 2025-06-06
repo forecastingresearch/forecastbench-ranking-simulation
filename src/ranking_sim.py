@@ -746,7 +746,7 @@ def temperature_lookup(temperature, round_id):
 
 
 def softmax_weights(x, temp):
-    if temp == 0 or np.isnan(temp):
+    if np.isnan(temp):
         return None
     w = np.exp(temp * x)
     return w / w.sum()
