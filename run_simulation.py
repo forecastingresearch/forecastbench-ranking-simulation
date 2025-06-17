@@ -193,6 +193,21 @@ SIMULATION_SCENARIOS = [
             "model_persistence": 0.70,
         },
     },
+    {
+        "name": "round_based_with_model_persistence_and_drift_GTP_4_reference",
+        "description": "Round-based sampling with model drift \
+              and 70% model persistence across rounds",
+        "ref_model": "GPT-4 (zero shot)",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 15,
+            "questions_per_round": 25,
+            "models_per_round_mean": 40,
+            "skill_temperature": lambda round_id: -5
+            + 0.714 * round_id,  # Linear increase from -5 to 5 from round_id = 0 to 14
+            "model_persistence": 0.70,
+        },
+    },
 ]
 
 # Define RANKING METHODS (shared across all scenarios)
