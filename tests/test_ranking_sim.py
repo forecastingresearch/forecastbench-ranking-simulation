@@ -161,6 +161,20 @@ def test_rank_by_diff_adj_brier_balanced_dataset():
         ), f"Score differences should match: {brier_diff} vs {diff_adj_diff}"
 
 
+def test_rank_by_diff_adj_brier_empty_dataframe():
+    """Test that rank_by_diff_adj_brier handles empty dataframe gracefully."""
+    df_empty = pd.DataFrame(columns=["model", "question_id", "forecast", "resolved_to"])
+
+    result = rank_by_diff_adj_brier(df_empty)
+
+    # Check it returns empty DataFrame with correct columns
+    assert len(result) == 0
+    assert list(result.columns) == ["model", "avg_diff_adj_brier", "rank"]
+    assert result["model"].dtype == "object"
+    assert result["avg_diff_adj_brier"].dtype == "float64"
+    assert result["rank"].dtype == "int64"
+
+
 def test_rank_by_bss():
     """Test basic ranking by Brier Skill Score (BSS)."""
     df = pd.DataFrame(
@@ -201,6 +215,20 @@ def test_rank_by_bss_ref_model_missing():
     mask = rankings["model"] == "C"
     print(rankings.loc[mask, "avg_bss"].values[0])
     assert np.isclose(rankings.loc[mask, "avg_bss"].values[0], 1.0)
+
+
+def test_rank_by_bss_empty_dataframe():
+    """Test that rank_by_bss handles empty dataframe gracefully."""
+    df_empty = pd.DataFrame(columns=["model", "question_id", "forecast", "resolved_to"])
+
+    result = rank_by_bss(df_empty, ref_model="SomeModel")
+
+    # Check it returns empty DataFrame with correct columns
+    assert len(result) == 0
+    assert list(result.columns) == ["model", "avg_bss", "rank"]
+    assert result["model"].dtype == "object"
+    assert result["avg_bss"].dtype == "float64"
+    assert result["rank"].dtype == "int64"
 
 
 def test_rank_by_peer_score():
@@ -789,6 +817,38 @@ def test_ranking_sanity_check():
     assert (
         result == 1.0
     ), "Should return 1.0 when all selected models are within tolerance"
+
+
+def test_combine_rankings_partial_data():
+    """Test combine_rankings when some models only have one question type."""
+    # Dataset rankings - has models A, B, C
+    df_dataset = pd.DataFrame(
+        {"model": ["A", "B", "C"], "avg_brier": [0.1, 0.2, 0.3], "rank": [1, 2, 3]}
+    )
+
+    # Market rankings - only has models A and B (C is missing)
+    df_market = pd.DataFrame(
+        {"model": ["A", "B"], "avg_brier": [0.15, 0.25], "rank": [1, 2]}
+    )
+
+    # Test combining
+    result = combine_rankings(
+        df_dataset,
+        df_market,
+        metric_name="avg_brier",
+        is_lower_metric_better=True,
+        dataset_weight=0.5,
+    )
+
+    # Check that C appears in result with appropriate handling
+    assert len(result) == 3
+    assert "C" in result["model"].values
+
+    # For model C, market score should be filled with dataset score
+    c_row = result[result["model"] == "C"].iloc[0]
+    assert np.isclose(c_row["avg_brier_dataset"], 0.3)
+    assert np.isclose(c_row["avg_brier_market"], 0.3)  # Filled with dataset value
+    assert np.isclose(c_row["avg_brier_weighted"], 0.3)
 
 
 def test_combine_rankings_with_ties():
