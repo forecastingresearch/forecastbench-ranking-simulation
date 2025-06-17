@@ -83,7 +83,16 @@ def rank_by_brier(df):
 
 def rank_by_diff_adj_brier(df):
     df = df.copy()
-    df["brier_score"] = brier_score(df)
+
+    # Return empty results for empty input
+    if len(df) == 0:
+        return pd.DataFrame(
+            {
+                "model": pd.Series(dtype="object"),
+                "avg_diff_adj_brier": pd.Series(dtype="float64"),
+                "rank": pd.Series(dtype="int64"),
+            }
+        )
 
     # Calculate "question difficulty" by estimating
     # a two-way fixed effect model:
@@ -95,6 +104,8 @@ def rank_by_diff_adj_brier(df):
     # provided as the first FE variable, to ensure we have an estimate
     # for each question_id (otherwise one question may be dropped to
     # avoid perfect multicolinearity)
+    df["brier_score"] = brier_score(df)
+
     mod = pf.feols("brier_score ~ 1 | question_id + model", data=df)
     dict_question_fe = mod.fixef()["C(question_id)"]
     if len(dict_question_fe) != len(df["question_id"].unique()):
@@ -128,6 +139,18 @@ def rank_by_diff_adj_brier(df):
 
 def rank_by_bss(df, ref_model="Naive Forecaster", type="percent"):
     df = df.copy()
+
+    # Return empty results for empty input
+    if len(df) == 0:
+        return pd.DataFrame(
+            {
+                "model": pd.Series(dtype="object"),
+                "avg_bss": pd.Series(dtype="float64"),
+                "rank": pd.Series(dtype="int64"),
+            }
+        )
+
+    # Otherwise, calculate Brier skill score (BSS)
     df["brier_score"] = brier_score(df)
 
     # Get reference model's predictions
