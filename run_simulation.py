@@ -148,14 +148,14 @@ SIMULATION_SCENARIOS = [
             "n_rounds": 15,
             "questions_per_round": 25,
             "models_per_round_mean": 40,
-            "skill_temperature": lambda round_id: -5
-            + 0.714 * round_id,  # Linear increase from -5 to 5 from round_id = 0 to 14
+            "skill_temperature": lambda round_id: (-15 + 30.0 / 14.0 * round_id),
+            # Linear increase from -15 to 15 from round_id = 0 to 14
         },
     },
     {
         "name": "round_based_question_drift",
         "description": "Round-based sampling with some easier rounds; easier rounds \
-            have questions with ~0.08 better Brier scores.",
+            have questions with ~0.07 better Brier scores.",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_round_based,
         "simulation_kwargs": {
@@ -188,8 +188,8 @@ SIMULATION_SCENARIOS = [
             "n_rounds": 15,
             "questions_per_round": 25,
             "models_per_round_mean": 40,
-            "skill_temperature": lambda round_id: -5
-            + 0.714 * round_id,  # Linear increase from -5 to 5 from round_id = 0 to 14
+            "skill_temperature": lambda round_id: (-15 + 30.0 / 14.0 * round_id),
+            # Linear increase from -15 to 15 from round_id = 0 to 14
             "model_persistence": 0.70,
         },
     },
@@ -203,8 +203,8 @@ SIMULATION_SCENARIOS = [
             "n_rounds": 15,
             "questions_per_round": 25,
             "models_per_round_mean": 40,
-            "skill_temperature": lambda round_id: -5
-            + 0.714 * round_id,  # Linear increase from -5 to 5 from round_id = 0 to 14
+            "skill_temperature": lambda round_id: (-15 + 30.0 / 14.0 * round_id),
+            # Linear increase from -15 to 15 from round_id = 0 to 14
             "model_persistence": 0.70,
         },
     },
