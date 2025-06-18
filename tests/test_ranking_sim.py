@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.stats import spearmanr, ttest_1samp
 
 sys.path.append("../src")
 
@@ -22,6 +23,7 @@ from ranking_sim import (
     ranking_sanity_check,
     simulate_random_sampling,
     simulate_round_based,
+    softmax_weights,
     spearman_correlation,
     top_k_retention,
 )
@@ -2006,10 +2008,173 @@ def test_simulation_regression_results():
                 got {actual_value:.6f}"
 
 
+@pytest.mark.slow
+def test_skill_temperature_vs_analytical():
+    ref_model = "Always 0.5"
+    low_temp = -5
+    high_temp = 5
+
+    # Load and process data
+    df = process_raw_data("../data/raw/llm_and_human_leaderboard_overall.pkl")
+
+    # Calculate analytical Brier scores for the case
+    # with one reference model & one non-reference model
+    # This is an easy case to calculate analytically, because
+    # other cases require much more complex calculations due
+    # to (i) models are sampled without replacement; and (ii)
+    # model count is, in general, Poisson distributed.
+    df_model_score = df[["model", "score"]].groupby("model").mean().reset_index()
+    brier_ref_model = df_model_score[df_model_score["model"] == ref_model][
+        "score"
+    ].values[0]
+
+    mask = df_model_score["model"] != ref_model
+    df_non_ref_model_score = df_model_score[mask].copy()
+    df_non_ref_model_score["brier_skill"] = df_non_ref_model_score["score"] * (-1)
+    df_non_ref_model_score["probs_low_temp"] = softmax_weights(
+        df_non_ref_model_score["brier_skill"], temp=low_temp
+    )
+    df_non_ref_model_score["probs_high_temp"] = softmax_weights(
+        df_non_ref_model_score["brier_skill"], temp=high_temp
+    )
+
+    brier_non_ref_model_low_temp = (
+        df_non_ref_model_score["score"] * df_non_ref_model_score["probs_low_temp"]
+    ).sum()
+    brier_non_ref_model_high_temp = (
+        df_non_ref_model_score["score"] * df_non_ref_model_score["probs_high_temp"]
+    ).sum()
+    brier_low_temp = 0.5 * (brier_ref_model + brier_non_ref_model_low_temp)
+    brier_high_temp = 0.5 * (brier_ref_model + brier_non_ref_model_high_temp)
+    brier_delta = brier_high_temp - brier_low_temp
+
+    # Calculate the same numbers using the simulation
+    np.random.seed(20250618)
+
+    res = []
+    for mm in range(1000):
+        df_sim = simulate_round_based(
+            df=df,
+            n_rounds=2,
+            questions_per_round=50,
+            models_per_round_mean=1,  # 1 non-ref model
+            ref_model=ref_model,
+            skill_temperature=lambda round_id: low_temp if round_id == 0 else high_temp,
+            difficulty_temperature=None,
+            model_persistence=0.0,
+            # To ensure deterministic number of models per round
+            fixed_models_per_round=True,
+        )
+        df_sim["score"] = brier_score(df_sim)
+        df_temp = df_sim[["round_id", "score"]].groupby("round_id").mean().reset_index()
+        brier_low_temp_sim = df_temp["score"].values[0]
+        brier_high_temp_sim = df_temp["score"].values[-1]
+        brier_delta_sim = brier_high_temp_sim - brier_low_temp_sim
+        res.append(
+            {
+                "simulation_id": mm,
+                "brier_low_temp": brier_low_temp_sim,
+                "brier_high_temp": brier_high_temp_sim,
+                "brier_delta": brier_delta_sim,
+            }
+        )
+    res = pd.DataFrame(res)
+
+    # Perform a t-test to compare simulated vs analytical results
+    _, p_val_low = ttest_1samp(res["brier_low_temp"], brier_low_temp)
+    _, p_val_high = ttest_1samp(res["brier_high_temp"], brier_high_temp)
+    _, p_val_delta = ttest_1samp(res["brier_delta"], brier_delta)
+
+    assert (
+        p_val_low > 0.05
+    ), f"Low temperature Brier score differs significantly: p={p_val_low:.4f}"
+    assert (
+        p_val_high > 0.05
+    ), f"High temperature Brier score differs significantly: p={p_val_high:.4f}"
+    assert p_val_delta > 0.05, f"Brier delta differs significantly: p={p_val_delta:.4f}"
+
+
+@pytest.mark.slow
+def test_question_temperature_vs_analytical():
+    ref_model = "Always 0.5"
+    low_temp = -5
+    high_temp = 5
+
+    # Load and process data
+    df = process_raw_data("../data/raw/llm_and_human_leaderboard_overall.pkl")
+
+    # Calculate analytical Brier scores for the case
+    # with all models participating in all rounds.
+    # That's an easy case to calculate analytically, because
+    # other cases require much more complex calculations due
+    # to (i) models are sampled without replacement; and (ii)
+    # model count is, in general, Poisson distributed.
+    df_question_score = (
+        df[["question_id", "score"]].groupby("question_id").mean().reset_index()
+    )
+    df_question_score["probs_low_temp"] = softmax_weights(
+        df_question_score["score"], temp=low_temp
+    )
+    df_question_score["probs_high_temp"] = softmax_weights(
+        df_question_score["score"], temp=high_temp
+    )
+    brier_low_temp = df_question_score["score"].dot(df_question_score["probs_low_temp"])
+    brier_high_temp = df_question_score["score"].dot(
+        df_question_score["probs_high_temp"]
+    )
+    brier_delta = brier_high_temp - brier_low_temp
+
+    # Calculate the same numbers using the simulation
+    np.random.seed(20250618)
+
+    res = []
+    for mm in range(1000):
+        df_sim = simulate_round_based(
+            df=df,
+            n_rounds=2,
+            questions_per_round=50,
+            models_per_round_mean=len(df["model"].unique())
+            - 1,  # All models, except ref_model
+            ref_model=ref_model,
+            skill_temperature=None,
+            difficulty_temperature=lambda round_id: (
+                low_temp if round_id == 0 else high_temp
+            ),
+            model_persistence=0.0,
+            # To ensure deterministic number of models per round;
+            # otherwise, analytical calculation is much more difficult
+            fixed_models_per_round=True,
+        )
+        df_sim["score"] = brier_score(df_sim)
+        df_temp = df_sim[["round_id", "score"]].groupby("round_id").mean().reset_index()
+        brier_low_temp_sim = df_temp["score"].values[0]
+        brier_high_temp_sim = df_temp["score"].values[-1]
+        brier_delta_sim = brier_high_temp_sim - brier_low_temp_sim
+        res.append(
+            {
+                "simulation_id": mm,
+                "brier_low_temp": brier_low_temp_sim,
+                "brier_high_temp": brier_high_temp_sim,
+                "brier_delta": brier_delta_sim,
+            }
+        )
+    res = pd.DataFrame(res)
+
+    # Perform a t-test to compare simulated vs analytical results
+    _, p_val_low = ttest_1samp(res["brier_low_temp"], brier_low_temp)
+    _, p_val_high = ttest_1samp(res["brier_high_temp"], brier_high_temp)
+    _, p_val_delta = ttest_1samp(res["brier_delta"], brier_delta)
+
+    assert (
+        p_val_low > 0.05
+    ), f"Low temperature Brier score differs significantly: p={p_val_low:.4f}"
+    assert (
+        p_val_high > 0.05
+    ), f"High temperature Brier score differs significantly: p={p_val_high:.4f}"
+    assert p_val_delta > 0.05, f"Brier delta differs significantly: p={p_val_delta:.4f}"
+
+
 def test_skill_drift_improves_quality_avg():
-    import numpy as np
-    import pandas as pd
-    from scipy.stats import spearmanr
 
     # --- tiny synthetic data with clear skill hierarchy ---------
     models = ["RefModel"] + [f"M{i}" for i in range(5)]
