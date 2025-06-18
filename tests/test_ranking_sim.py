@@ -2062,7 +2062,8 @@ def test_skill_temperature_vs_analytical():
             skill_temperature=lambda round_id: low_temp if round_id == 0 else high_temp,
             difficulty_temperature=None,
             model_persistence=0.0,
-            fixed_models_per_round=True,  # To ensure deterministic number of models per round
+            # To ensure deterministic number of models per round
+            fixed_models_per_round=True,
         )
         df_sim["score"] = brier_score(df_sim)
         df_temp = df_sim[["round_id", "score"]].groupby("round_id").mean().reset_index()
@@ -2140,8 +2141,9 @@ def test_question_temperature_vs_analytical():
                 low_temp if round_id == 0 else high_temp
             ),
             model_persistence=0.0,
-            fixed_models_per_round=True,  # To ensure deterministic number of models per round;
+            # To ensure deterministic number of models per round;
             # otherwise, analytical calculation is much more difficult
+            fixed_models_per_round=True,
         )
         df_sim["score"] = brier_score(df_sim)
         df_temp = df_sim[["round_id", "score"]].groupby("round_id").mean().reset_index()
