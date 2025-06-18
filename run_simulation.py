@@ -24,8 +24,8 @@ from ranking_sim import (
 )
 
 # EXPECTED RUNTIME: ~3-4 minutes per scenario on a standard
-# laptop with N_SIMULATIONS = 1000; with 8 scenarios, total
-# expected runtime is around 30 minutes.
+# laptop with N_SIMULATIONS = 1000; with 12 scenarios, total
+# expected runtime is around 40 minutes.
 
 # =====================================================
 # GLOBAL CONFIGURATION
