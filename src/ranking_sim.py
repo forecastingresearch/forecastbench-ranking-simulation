@@ -388,6 +388,7 @@ def simulate_round_based(
     skill_temperature=None,
     difficulty_temperature=None,
     model_persistence=0.0,
+    fixed_models_per_round=False,
 ):
     """
     Simulate dataset using round-based sampling.
@@ -484,11 +485,17 @@ def simulate_round_based(
             questions, size=questions_per_round, replace=True, p=question_probs
         )
 
-        # Sample number of models for this round (Poisson, but
-        # at least 1 non-ref model, and less than total available
-        # models)
-        n_models_this_round = max(1, np.random.poisson(models_per_round_mean))
-        n_models_this_round = min(n_models_this_round, n_non_reference_models)
+        # Sample number of models for this round (either Poisson-distributed
+        # or fixed)
+        if not fixed_models_per_round:
+            n_models_this_round = max(1, np.random.poisson(models_per_round_mean))
+            n_models_this_round = min(n_models_this_round, n_non_reference_models)
+        elif fixed_models_per_round:
+            n_models_this_round = models_per_round_mean
+            if n_models_this_round > n_non_reference_models:
+                raise ValueError(
+                    "Fixed models per round exceeds available non-reference models."
+                )
 
         # Sample models that participate in this round;
         # sampling WITHOUT replacement
