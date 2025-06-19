@@ -337,7 +337,7 @@ def validate_processed_data(df):
 
     # 6. Check resolved_to is binary
     unique_resolved = df["resolved_to"].unique()
-    if not set(unique_resolved).issubset({0, 1, 0.0, 1.0}):
+    if not set(unique_resolved).issubset({int(0), int(1), 0.0, 1.0}):
         raise ValueError(f"resolved_to contains non-binary values: {unique_resolved}")
     print("✓ All resolved_to values are binary")
 

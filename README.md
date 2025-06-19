@@ -48,11 +48,16 @@ python run_simulation.py
 
 Run tests:
 ```bash
-cd ./tests/
-pytest
+make test
+```
+
+Run linter:
+```bash
+make lint
 ```
 
 ## Requirements
 
+- GNU Make
 - Python 3.7+
 - See `requirements.txt` for required Python packages
