@@ -43,5 +43,7 @@ Thumbs.db
 # Project specific
 *.log
 *.pkl
+# Exclude all pkl files except those in tests/data
+!tests/data/*.pkl 
 *.csv
 *.json

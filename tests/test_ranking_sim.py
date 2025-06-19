@@ -1959,7 +1959,7 @@ def test_simulation_regression_results():
     np.random.seed(20250527)
 
     # Load and process data
-    df = process_raw_data("../data/raw/llm_and_human_leaderboard_overall.pkl")
+    df = process_raw_data("./data/2024_07_21_llm_and_human_leaderboard.pkl")
 
     # Define methods
     ranking_methods = {
@@ -2015,7 +2015,7 @@ def test_skill_temperature_vs_analytical():
     high_temp = 5
 
     # Load and process data
-    df = process_raw_data("../data/raw/llm_and_human_leaderboard_overall.pkl")
+    df = process_raw_data("./data/2024_07_21_llm_and_human_leaderboard.pkl")
 
     # Calculate analytical Brier scores for the case
     # with one reference model & one non-reference model
@@ -2101,7 +2101,7 @@ def test_question_temperature_vs_analytical():
     high_temp = 5
 
     # Load and process data
-    df = process_raw_data("../data/raw/llm_and_human_leaderboard_overall.pkl")
+    df = process_raw_data("./data/2024_07_21_llm_and_human_leaderboard.pkl")
 
     # Calculate analytical Brier scores for the case
     # with all models participating in all rounds.
@@ -2291,7 +2291,7 @@ def test_simulation_regression_round_based_results():
     np.random.seed(20250527)
 
     # Load and process data
-    df = process_raw_data("../data/raw/llm_and_human_leaderboard_overall.pkl")
+    df = process_raw_data("./data/2024_07_21_llm_and_human_leaderboard.pkl")
 
     # Define methods
     ranking_methods = {
