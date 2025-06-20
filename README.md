@@ -34,9 +34,9 @@ ranking-simulation/
 Clone the Github repo. Create the expected data directories
 ```bash
 mkdir -p data/{raw,processed,results}
+pip install -r requirements.txt
+cp tests/data/2024_07_21_llm_and_human_leaderboard.pkl data/raw/llm_and_human_leaderboard.pkl
 ```
-
-The `llm_and_human_leaderboard_overall.pkl` file should be downloaded from the FRI Google Drive [here](https://drive.google.com/drive/folders/1p1x4Ywrj39hPat-Y7miHX-UXGJvMGqgB?usp=drive_link) and placed into `data/raw`.
 
 ## Usage
 
@@ -47,14 +47,16 @@ python run_simulation.py
 
 Run tests:
 ```bash
-cd ./tests/
-pytest
+make test
+```
+
+Run linter:
+```bash
+make lint
 ```
 
 ## Requirements
 
+- GNU Make
 - Python 3.7+
-- pandas
-- numpy
-- pyfixest
-- pytest (for running tests)
+- See `requirements.txt` for required Python packages

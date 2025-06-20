@@ -13,6 +13,7 @@ from ranking_sim import (
     brier_score,
     combine_rankings,
     evaluate_ranking_methods,
+    fixed_dataset_market_question_sample,
     median_displacement,
     process_raw_data,
     rank_by_brier,
@@ -429,6 +430,94 @@ def test_top_k_retention_edge_cases():
     retention_large_k = top_k_retention(df_all_tied, df_sim_different, k=10)
     # All models are in top-10 for both, so retention = 1.0
     assert retention_large_k == 1.0
+
+
+@pytest.fixture
+def df_for_sampling():
+    n_dataset_questions = 24
+    horizons = [7, 30, 90]
+    n_horizons = len(horizons)
+    n_dataset_qs = n_dataset_questions // n_horizons
+    n_market_qs = n_dataset_qs
+
+    def get_source(sources, i):
+        return sources[i % len(sources)]
+
+    def get_dataset_source(i):
+        return get_source(["acled", "dbnomics", "fred", "wikipedia", "yfinance"], i)
+
+    def get_market_source(i):
+        return get_source(["infer", "manifold", "metaculus", "polymarket"], i)
+
+    dataset_ids = [f"q{i+1}" for i in range(n_dataset_qs)]
+    dataset_sources = [get_dataset_source(i) for i in range(n_dataset_qs)]
+    dataset_qs = np.repeat(dataset_ids, n_horizons)
+    dataset_srcs = np.repeat(dataset_sources, n_horizons)
+
+    market_ids = [f"q{i+1+n_dataset_qs}" for i in range(n_market_qs)]
+    market_sources = [get_market_source(i) for i in range(n_market_qs)]
+
+    df = pd.DataFrame(
+        {
+            "id": np.concatenate([dataset_qs, market_ids]),
+            "source": np.concatenate([dataset_srcs, market_sources]),
+            "horizon": list(np.tile(horizons, n_dataset_qs)) + [np.nan] * n_market_qs,
+            "question_type": ["dataset"] * (n_dataset_qs * n_horizons)
+            + ["market"] * n_market_qs,
+            "forecast_due_date": pd.to_datetime("2024-07-21"),
+        }
+    )
+    df["question_id"] = df["source"] + "_" + df["id"]
+    mask = df["question_type"] == "dataset"
+    df.loc[mask, "question_id"] = (
+        df.loc[mask, "source"]
+        + "_"
+        + df.loc[mask, "id"]
+        + "_"
+        + df.loc[mask, "horizon"].astype(str)
+    )
+    return df
+
+
+@pytest.mark.parametrize(
+    ("N", "n_dataset", "n_market"),
+    [
+        (36, 27, 9),
+        (21, 15, 6),
+        (5, 3, 2),
+    ],
+)
+def test_fixed_dataset_market_question_sample_success(
+    df_for_sampling, N, n_dataset, n_market
+):
+    """Check fixed dataset/market question sampling function."""
+    questions = list(fixed_dataset_market_question_sample(df_for_sampling, N))
+    mapping = df_for_sampling.set_index("question_id")["question_type"].to_dict()
+    assert len(questions) == N and N == n_market + n_dataset
+    assert sum(mapping[q] == "dataset" for q in questions) == n_dataset
+    assert sum(mapping[q] == "market" for q in questions) == n_market
+
+    market_mask = df_for_sampling["question_type"] == "market"
+    dataset_mask = df_for_sampling["question_type"] == "dataset"
+    dataset_sources = df_for_sampling.loc[dataset_mask, "source"].values
+    dataset_ids = df_for_sampling.loc[dataset_mask, "id"].values
+    dataset_horizons = df_for_sampling.loc[dataset_mask, "horizon"].unique()
+    for q in questions:
+        if mapping[q] == "market":
+            assert q in df_for_sampling.loc[market_mask, "question_id"].values
+        else:
+            source, qid, horizon = q.split("_", 2)
+            assert source in dataset_sources
+            assert qid in dataset_ids
+            assert float(horizon) in dataset_horizons
+            assert all(f"{source}_{qid}_{h}" in questions for h in dataset_horizons)
+
+
+@pytest.mark.parametrize("N", [99, 3, 0])
+def test_fixed_dataset_market_question_sample_errors(df_for_sampling, N):
+    """Test error is thrown for bad values of `N`."""
+    with pytest.raises(ValueError):
+        fixed_dataset_market_question_sample(df_for_sampling, N)
 
 
 def test_top_k_retention_integration_with_tied_scores():

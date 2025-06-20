@@ -1,0 +1,9 @@
+pandas>=2.3.0
+numpy
+pyfixest>=0.29.0
+pytest>=8.4.1
+tqdm>=4.67.1
+isort>=6.0.1
+black[jupyter]>=25.1.0
+flake8>=7.2.0
+flake8-bugbear>=24.12.12

@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pyfixest as pf
+from tqdm import tqdm
 
 # ================
 # Data preparation
@@ -15,6 +16,8 @@ def process_raw_data(input_name):
         df_temp = pkl[ii]["df"]
         df_temp["model"] = pkl[ii]["model"]
         df_temp["organization"] = pkl[ii]["organization"]
+        # drop combo questions
+        df_temp = df_temp[df_temp["direction"] == ()]
         df = pd.concat([df, df_temp])
     df = df.reset_index(drop=True)
 
@@ -379,6 +382,66 @@ def simulate_random_sampling(df, n_questions_per_model, ref_model="Always 0.5"):
     return df_results
 
 
+def fixed_dataset_market_question_sample(df, n):
+    """
+    Sample questions in a similar way to sampling done on ForecastBench.
+
+    Aim for a 50:50 split between dataset questions and market questions when there is
+    only one forecast horizon. As the number of available horizons increases, the
+    proportion of dataset questions to market questions increases.
+    """
+    groups = df.groupby(["question_type", "horizon"], dropna=False)[
+        "question_id"
+    ].unique()
+
+    dataset_groups = groups["dataset"]
+    n_horizons = len(dataset_groups)
+
+    # Number of full sets of dataset (n_horizons) and market questions (1) that fit in
+    # `n`
+    n_dataset = n // (n_horizons + 1) * n_horizons
+
+    # Number of dataset questions per horizon
+    n_dataset_horizon = n_dataset // n_horizons
+
+    # The remainder
+    n_market = n - n_dataset
+
+    if (
+        n_dataset_horizon < 1
+        or n_market < 1
+        or n_dataset > len(df["question_type"] == "dataset")
+        or n_market > len(df["question_type"] == "market")
+    ):
+        raise ValueError(
+            f"`fixed_dataset_market_question_sample()` needs a bigger `n`. It was "
+            f"provided n={n}, which caused n_dataset_horizon=={n_dataset_horizon} and "
+            f"n_market=={n_market}.\n"
+        )
+
+    # Market questions: choose randomly across all market questions
+    all_market_questions = np.concatenate([g for g in groups["market"].values])
+    market_questions = np.random.choice(
+        all_market_questions, size=n_market, replace=True
+    )
+
+    # Dataset questions: choose randomly for one horizon, then get the same questions
+    # at all horizons
+    df0 = df[df["question_id"].isin(dataset_groups.values[0])]
+    sampled_rows = df0.sample(n=n_dataset_horizon, replace=True)
+    dataset_questions_list = []
+    for _, row in sampled_rows.iterrows():
+        subset = df[
+            (df["source"] == row["source"])
+            & (df["id"] == row["id"])
+            & (df["forecast_due_date"] == row["forecast_due_date"])
+        ]
+        dataset_questions_list.extend(subset["question_id"].unique())
+    dataset_questions = np.array(dataset_questions_list)
+
+    return np.concatenate([market_questions, dataset_questions])
+
+
 def simulate_round_based(
     df,
     n_rounds=15,
@@ -389,6 +452,7 @@ def simulate_round_based(
     difficulty_temperature=None,
     model_persistence=0.0,
     fixed_models_per_round=False,
+    fixed_dataset_market_question_sampling=False,
 ):
     """
     Simulate dataset using round-based sampling.
@@ -435,6 +499,12 @@ def simulate_round_based(
     if ref_model is None or ref_model not in models:
         raise ValueError("Reference model not provided or not found in data.")
 
+    if fixed_dataset_market_question_sampling and difficulty_temperature is not None:
+        raise ValueError(
+            "Cannot use `fixed_dataset_market_question_sampling` and "
+            "`difficulty_temperature`."
+        )
+
     # Create list of non-reference models
     other_models = [m for m in models if m != ref_model]
     n_non_reference_models = len(other_models)
@@ -476,14 +546,19 @@ def simulate_round_based(
         beta_r = temperature_lookup(difficulty_temperature, round_id)
 
         # Sample questions with replacement for this round
-        question_probs = (
-            softmax_weights(question_difficulties, beta_r)
-            if use_question_drift
-            else None
-        )
-        round_questions = np.random.choice(
-            questions, size=questions_per_round, replace=True, p=question_probs
-        )
+        if fixed_dataset_market_question_sampling:
+            round_questions = fixed_dataset_market_question_sample(
+                df=df, n=questions_per_round
+            )
+        else:
+            question_probs = (
+                softmax_weights(question_difficulties, beta_r)
+                if use_question_drift
+                else None
+            )
+            round_questions = np.random.choice(
+                questions, size=questions_per_round, replace=True, p=question_probs
+            )
 
         # Sample number of models for this round (either Poisson-distributed
         # or fixed)
@@ -627,7 +702,7 @@ def evaluate_ranking_methods(
     results_list = []
     error_count = 0
 
-    for sim in range(n_simulations):
+    for sim in tqdm(range(n_simulations)):
         # Generate simulated dataset using the provided simulation function
         df_sim = simulation_func(df=df, ref_model=ref_model, **simulation_kwargs)
 

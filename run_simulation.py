@@ -208,6 +208,22 @@ SIMULATION_SCENARIOS = [
             "model_persistence": 0.70,
         },
     },
+    {
+        "name": "round_based_with_model_persistence_and_drift_real_world_sampling",
+        "description": "Round-based sampling with model drift, \
+              70% model persistence across rounds, and real-world data sampling",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 15,
+            "questions_per_round": 25,
+            "models_per_round_mean": 40,
+            "skill_temperature": lambda round_id: (-15 + 30.0 / 14.0 * round_id),
+            # Linear increase from -15 to 15 from round_id = 0 to 14
+            "model_persistence": 0.70,
+            "fixed_dataset_market_question_sampling": True,
+        },
+    },
 ]
 
 # Define RANKING METHODS (shared across all scenarios)
@@ -337,7 +353,7 @@ def validate_processed_data(df):
 
     # 6. Check resolved_to is binary
     unique_resolved = df["resolved_to"].unique()
-    if not set(unique_resolved).issubset({0, 1, 0.0, 1.0}):
+    if not set(unique_resolved).issubset({int(0), int(1), 0.0, 1.0}):
         raise ValueError(f"resolved_to contains non-binary values: {unique_resolved}")
     print("✓ All resolved_to values are binary")
 
