@@ -320,56 +320,45 @@ def simulate_random_sampling(df, n_questions_per_model, ref_model="Always 0.5"):
     """Simulate a dataset by drawing a n_questions_per_model random questions
     (sampled with replacement) from the full sample of questions. ref_model
     answers all questions"""
-    # Get parameters
-    models = df["model"].unique()
+    # Extract variables
     questions = df["question_id"].unique()
-    n_models = len(models)
-    n_questions = len(questions)
+    models = df["model"].unique()
 
     # Check if ref_model exists
-    if ref_model is not None and ref_model in models:
-        # Find ref_model index
-        ref_model_idx = np.where(models == ref_model)[0][0]
-
-        # Create indices for all OTHER models
-        other_model_indices = np.arange(n_models)
-        other_model_indices = other_model_indices[other_model_indices != ref_model_idx]
-
-        # Sample for other models
-        all_model_indices = np.repeat(other_model_indices, n_questions_per_model)
-        all_question_indices = np.concatenate(
-            [
-                np.random.choice(n_questions, size=n_questions_per_model, replace=True)
-                for _ in range(len(other_model_indices))
-            ]
-        )
-
-        # Append reference model with ALL questions at the end
-        all_model_indices = np.concatenate(
-            [all_model_indices, np.repeat(ref_model_idx, n_questions)]
-        )
-        all_question_indices = np.concatenate(
-            [all_question_indices, np.arange(n_questions)]
-        )
-    else:
+    if ref_model is None or ref_model not in models:
         raise ValueError("Reference model not provided.")
 
-    # Convert indices to actual model/question values
-    sampled_models = models[all_model_indices]
-    sampled_questions = questions[all_question_indices]
+    other_models = [model for model in models if model != ref_model]
+    n_other_models = len(other_models)
 
-    # Create DataFrame of sampled (model, question) pairs
-    # Include a sample_id to handle duplicates from sampling with replacement
-    df_samples = pd.DataFrame(
-        {
-            "model": sampled_models,
-            "question_id": sampled_questions,
-            "sample_id": np.arange(len(sampled_models)),  # Unique ID for each sample
-        }
+    # Draw questions for non-reference models
+    df_samples = pd.DataFrame()
+    df_samples["model"] = np.repeat(other_models, n_questions_per_model)
+    df_samples["question_id"] = np.random.choice(
+        questions, size=n_questions_per_model * n_other_models, replace=True
     )
 
-    # Single merge operation to get all data
-    # The sample_id ensures we keep duplicates when sampling with replacement
+    # Calculate number of occurences of question_id for a given model.
+    # This is for getting a unique primary key for simulated questions.
+    # This approach treats the same question_id (from the original dataset)
+    # resampled k times as k different questions (i.e., k different
+    # sim_question_id's)
+    df_samples = df_samples.sort_values(["model", "question_id"]).reset_index(drop=True)
+    df_samples["occ_question_id"] = (
+        df_samples.groupby(["model", "question_id"]).cumcount() + 1
+    )
+
+    # Create a unique primary key for simulated questions
+    df_samples["sim_question_id"] = (
+        df_samples["question_id"] + "-" + df_samples["occ_question_id"].astype(str)
+    )
+
+    # Add reference model
+    df_temp = df_samples[["question_id", "sim_question_id"]].copy().drop_duplicates()
+    df_temp["model"] = ref_model
+    df_samples = pd.concat([df_samples, df_temp], ignore_index=True)
+
+    # Get data on forecasts and realizations from the original dataset
     df_results = df_samples.merge(
         df[["model", "question_id", "forecast", "resolved_to", "question_type"]],
         on=["model", "question_id"],
@@ -377,6 +366,8 @@ def simulate_random_sampling(df, n_questions_per_model, ref_model="Always 0.5"):
     )
 
     # Clean up
+    df_results["question_id"] = df_results["sim_question_id"]
+    df_results = df_results.drop(["occ_question_id", "sim_question_id"], axis=1)
     df_results = df_results.reset_index(drop=True)
 
     return df_results
