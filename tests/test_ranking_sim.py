@@ -2497,7 +2497,8 @@ def test_persistence_60_percent():
     ],
 )
 def test_no_duplicates_at_model_question_level(simulation_type, simulation_kwargs):
-    """Test that there are no duplicate [model, question_id] combinations in simulation results.
+    """Test that there are no duplicate [model, question_id] combinations in
+    simulation results.
 
     This ensures that each model answers each question at most once, which is critical
     for proper ranking calculations.
