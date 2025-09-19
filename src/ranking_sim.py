@@ -92,7 +92,7 @@ def rank_by_brier(df):
     return model_scores
 
 
-def rank_by_diff_adj_brier(df, market_weight=0.0, market_ref_model="Naive Forecaster"):
+def rank_by_diff_adj_brier(df, market_weight=0.0):
     df = df.copy()
 
     # Return empty results for empty input
