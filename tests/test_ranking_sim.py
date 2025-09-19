@@ -2346,7 +2346,12 @@ def test_difficulty_drift_hard_share_grows():
             skill_temperature=None,
             difficulty_temperature=lambda r: beta[r],
         )
-        hard = (sim["question_id"] == "hard").groupby(sim["round_id"]).any()
+        hard = (
+            sim["question_id"]
+            .apply(lambda x: x[0:4] == "hard")
+            .groupby(sim["round_id"])
+            .any()
+        )
         hard_counts += hard.reindex(range(R), fill_value=False).astype(int).values
     hard_share = hard_counts / REP
 
@@ -2410,9 +2415,9 @@ def test_simulation_regression_round_based_results():
     # Expected results (from known good run)
     expected_results = {
         "Brier": {"Spearman": 0.694564, "Top-20 Retention": 0.476},
-        "Diff-Adj. Brier": {"Spearman": 0.771530, "Top-20 Retention": 0.557},
+        "Diff-Adj. Brier": {"Spearman": 0.770730, "Top-20 Retention": 0.560},
         "BSS": {"Spearman": 0.145300, "Top-20 Retention": 0.319},
-        "Peer Score": {"Spearman": 0.770672, "Top-20 Retention": 0.564},
+        "Peer Score": {"Spearman": 0.768716, "Top-20 Retention": 0.561},
     }
 
     # Check results
@@ -2465,3 +2470,111 @@ def test_persistence_60_percent():
     r1 = set(sim.loc[sim.round_id == 1, "model"]) - {"Always 0.5"}
 
     assert len(r0 & r1) == np.floor(0.6 * len(r0))  # 60 % persistence
+
+
+@pytest.mark.parametrize("simulation_type", ["random", "round_based"])
+@pytest.mark.parametrize(
+    "simulation_kwargs",
+    [
+        {"n_questions_per_model": 10},  # For random sampling only
+        {
+            "n_rounds": 3,
+            "questions_per_round": 5,
+            "models_per_round_mean": 3,
+        },  # For round_based only
+        {
+            "n_rounds": 2,
+            "questions_per_round": 8,
+            "models_per_round_mean": 4,
+            "model_persistence": 0.5,
+        },  # Round_based with persistence
+        {
+            "n_rounds": 4,
+            "questions_per_round": 3,
+            "models_per_round_mean": 2,
+            "fixed_models_per_round": True,
+        },  # Round_based fixed models
+    ],
+)
+def test_no_duplicates_at_model_question_level(simulation_type, simulation_kwargs):
+    """Test that there are no duplicate [model, question_id] combinations in simulation results.
+
+    This ensures that each model answers each question at most once, which is critical
+    for proper ranking calculations.
+    """
+    # Create test dataset with sufficient questions and models
+    models = ["RefModel", "ModelA", "ModelB", "ModelC", "ModelD", "ModelE"]
+    question_ids = [f"q{i}" for i in range(20)]
+
+    data = []
+    for model in models:
+        for question_id in question_ids:
+            data.append(
+                {
+                    "model": model,
+                    "question_id": question_id,
+                    "forecast": np.random.uniform(0.1, 0.9),
+                    "resolved_to": np.random.choice([0, 1]),
+                    "question_type": "dataset",
+                }
+            )
+
+    df = pd.DataFrame(data)
+
+    # Set seed for reproducibility
+    np.random.seed(42)
+
+    # Run appropriate simulation based on type
+    if simulation_type == "random":
+        # Only use kwargs relevant to random sampling
+        relevant_kwargs = {
+            k: v for k, v in simulation_kwargs.items() if k in ["n_questions_per_model"]
+        }
+        if not relevant_kwargs:
+            pytest.skip("No relevant kwargs for random sampling")
+
+        df_sim = simulate_random_sampling(df, ref_model="RefModel", **relevant_kwargs)
+
+    elif simulation_type == "round_based":
+        # Only use kwargs relevant to round-based sampling
+        relevant_kwargs = {
+            k: v
+            for k, v in simulation_kwargs.items()
+            if k
+            in [
+                "n_rounds",
+                "questions_per_round",
+                "models_per_round_mean",
+                "model_persistence",
+                "fixed_models_per_round",
+            ]
+        }
+        if "n_rounds" not in relevant_kwargs:
+            pytest.skip("No relevant kwargs for round-based sampling")
+
+        df_sim = simulate_round_based(df, ref_model="RefModel", **relevant_kwargs)
+
+    # Check for duplicates at [model, question_id] level
+    duplicate_check = df_sim.groupby(["model", "question_id"]).size()
+    duplicates = duplicate_check[duplicate_check > 1]
+
+    if len(duplicates) > 0:
+        print(f"\nFound duplicates in {simulation_type} simulation:")
+        print(f"Simulation kwargs: {simulation_kwargs}")
+        print("Duplicate combinations:")
+        for (model, question_id), count in duplicates.items():
+            print(f"  Model '{model}', Question '{question_id}': {count} occurrences")
+
+        # Also show a sample of the problematic data
+        sample_duplicate = duplicates.index[0]
+        model, question_id = sample_duplicate
+        duplicate_rows = df_sim[
+            (df_sim["model"] == model) & (df_sim["question_id"] == question_id)
+        ]
+        print(f"\nSample duplicate rows for Model '{model}', Question '{question_id}':")
+        print(duplicate_rows.to_string())
+
+    # The assertion: no duplicates should exist
+    assert (
+        len(duplicates) == 0
+    ), f"Found {len(duplicates)} duplicate [model, question_id] combinations"

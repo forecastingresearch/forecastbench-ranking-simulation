@@ -662,6 +662,28 @@ def simulate_round_based(
     # Create DataFrame from all samples
     df_samples = pd.DataFrame(data_rows)
 
+    # Create a unique primary key for simulated questions.
+    # A question with the same question_id (from the original dataset)
+    # that is drawn in round R and R + 1 is treated as a different question
+    # (i.e., will have different sim_question_id's). Also,
+    # if the same question is drawn k > 1 times in the same round R,
+    # it will also get different sim_question_id's.
+    df_samples = df_samples.sort_values(
+        ["model", "round_id", "question_id"], ascending=True
+    ).reset_index(drop=True)
+    df_samples["occ_question_id"] = (
+        df_samples.groupby(["model", "round_id", "question_id"]).cumcount() + 1
+    )
+
+    # Create unique sim_question_id for within-round duplicates
+    df_samples["sim_question_id"] = (
+        df_samples["question_id"]
+        + "-R"
+        + df_samples["round_id"].astype(str)
+        + "-"
+        + df_samples["occ_question_id"].astype(str)
+    )
+
     # Merge with original data to get forecasts and outcomes
     # round_id ensures uniqueness during merge
     df_results = df_samples.merge(
@@ -669,6 +691,11 @@ def simulate_round_based(
         on=["model", "question_id"],
         how="left",
     )
+
+    # Clean up
+    df_results["question_id"] = df_results["sim_question_id"]
+    df_results = df_results.drop(["occ_question_id", "sim_question_id"], axis=1)
+    df_results = df_results.reset_index(drop=True)
 
     return df_results
 
