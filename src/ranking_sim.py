@@ -410,8 +410,8 @@ def fixed_dataset_market_question_sample(df, n):
     if (
         n_dataset_horizon < 1
         or n_market < 1
-        or n_dataset > len(df["question_type"] == "dataset")
-        or n_market > len(df["question_type"] == "market")
+        or n_dataset > len(df[df["question_type"] == "dataset"])
+        or n_market > len(df[df["question_type"] == "market"])
     ):
         raise ValueError(
             f"`fixed_dataset_market_question_sample()` needs a bigger `n`. It was "
