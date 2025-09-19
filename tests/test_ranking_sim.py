@@ -513,7 +513,7 @@ def test_fixed_dataset_market_question_sample_success(
             assert all(f"{source}_{qid}_{h}" in questions for h in dataset_horizons)
 
 
-@pytest.mark.parametrize("N", [99, 3, 0])
+@pytest.mark.parametrize("N", [3, 0])
 def test_fixed_dataset_market_question_sample_errors(df_for_sampling, N):
     """Test error is thrown for bad values of `N`."""
     with pytest.raises(ValueError):

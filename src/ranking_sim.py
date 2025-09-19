@@ -398,11 +398,15 @@ def fixed_dataset_market_question_sample(df, n):
     # The remainder
     n_market = n - n_dataset
 
+    # Since sampling is done with replacement, we need at least
+    # 1 market and at least 1 dataset questions, and the required
+    # number of market questions to sample should be >= 1
     if (
         n_dataset_horizon < 1
         or n_market < 1
-        or n_dataset > len(df[df["question_type"] == "dataset"])
-        or n_market > len(df[df["question_type"] == "market"])
+        or len(dataset_groups.values[0]) < 1  # At least one dataset question exists
+        or len(df[df["question_type"] == "market"])
+        < 1  # At least one market question exists
     ):
         raise ValueError(
             f"`fixed_dataset_market_question_sample()` needs a bigger `n`. It was "
