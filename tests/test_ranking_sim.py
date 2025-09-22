@@ -164,6 +164,66 @@ def test_rank_by_diff_adj_brier_balanced_dataset():
         ), f"Score differences should match: {brier_diff} vs {diff_adj_diff}"
 
 
+def test_rank_by_diff_adj_mkt_weighting():
+    """Test that diff-adj Brier returns ranking by market-adjusted
+    scores when market_weight = 1.0."""
+    # Create a balanced dataset where each model has consistent skill
+
+    np.random.seed(42)
+    n_questions = 20
+    models = {
+        "Model_A": 0.9,  # Best calibration
+        "Model_B": 0.7,
+        "Model_C": 0.5,
+        "Model_D": 0.3,  # Worst calibration
+    }
+
+    data = []
+    for q_idx in range(n_questions):
+        # Random outcome for each question
+        outcome = np.random.binomial(1, 0.5)
+
+        for model, skill in models.items():
+            # Model predicts: skill if outcome=1, (1-skill) if outcome=0
+            if outcome == 1:
+                forecast = skill
+                market_forecast = 0.95
+            else:
+                forecast = 1 - skill
+                market_forecast = 0.05
+
+            data.append(
+                {
+                    "model": model,
+                    "question_id": f"q{q_idx}",
+                    "forecast": forecast,
+                    "resolved_to": outcome,
+                    "question_type": "market",
+                    "market_forecast": market_forecast,
+                }
+            )
+
+    df = pd.DataFrame(data)
+
+    diff_adj_ranking = rank_by_diff_adj_brier(df, market_weight=1.0)
+    # Calculate ranking manually
+    df_test = df.copy()
+    df_test["brier_score"] = (df_test["forecast"] - df_test["resolved_to"]) ** 2
+    df_test["mkt_brier_score"] = (
+        df_test["market_forecast"] - df_test["resolved_to"]
+    ) ** 2
+    df_test["mkt_adjusted_brier"] = df_test["brier_score"] - df_test["mkt_brier_score"]
+    df_test = df_test.groupby("model")["mkt_adjusted_brier"].mean().reset_index()
+    df_test = df_test.sort_values(by="mkt_adjusted_brier", ascending=True)
+    df_test.rename(columns={"mkt_adjusted_brier": "avg_diff_adj_brier"}, inplace=True)
+
+    assert np.isclose(
+        df_test["avg_diff_adj_brier"], diff_adj_ranking["avg_diff_adj_brier"]
+    ).all()
+
+    assert (df_test["model"] == diff_adj_ranking["model"]).all()
+
+
 def test_rank_by_diff_adj_brier_empty_dataframe():
     """Test that rank_by_diff_adj_brier handles empty dataframe gracefully."""
     df_empty = pd.DataFrame(columns=["model", "question_id", "forecast", "resolved_to"])
@@ -1257,6 +1317,7 @@ def test_simulate_random_sampling():
             "question_type": ["dataset"] * 9,
             "forecast": [0.7, 0.8, 0.9] * 3,
             "resolved_to": [1, 1, 1, 0, 0, 0, 1, 1, 1],
+            "market_forecast": [np.nan] * 9,
         }
     )
 
@@ -1317,6 +1378,7 @@ def test_simulate_random_sampling_overlap():
                     "question_type": "dataset",
                     "forecast": 0.5,
                     "resolved_to": 1,
+                    "market_forecast": np.nan,
                 }
             )
     df = pd.DataFrame(data)
@@ -1406,6 +1468,7 @@ def test_evaluate_ranking_methods_oracle():
                     "question_type": "dataset",
                     "forecast": forecast,
                     "resolved_to": outcome,
+                    "market_forecast": np.nan,
                 }
             )
 
@@ -1496,6 +1559,7 @@ def test_bss_brier_identical_with_constant_reference():
                     "question_type": "dataset",
                     "forecast": forecast,
                     "resolved_to": outcome,
+                    "market_forecast": np.nan,
                 }
             )
 
@@ -1598,6 +1662,7 @@ def test_evaluate_ranking_methods_correlation_vs_coverage():
                     "forecast": forecast,
                     "resolved_to": outcome,
                     "question_type": "dataset",
+                    "market_forecast": np.nan,
                 }
             )
 
@@ -1662,6 +1727,7 @@ def test_simulate_round_based_questions_per_round():
             "forecast": [0.5] * 90,
             "resolved_to": [1] * 90,
             "question_type": ["dataset"] * 90,
+            "market_forecast": [np.nan] * 90,
         }
     )
 
@@ -1700,6 +1766,7 @@ def test_simulate_round_based_ref_model_all_rounds():
             "forecast": [0.5] * 40,
             "resolved_to": [1] * 40,
             "question_type": ["dataset"] * 40,
+            "market_forecast": [np.nan] * 40,
         }
     )
 
@@ -1732,6 +1799,7 @@ def test_simulate_round_based_all_models_answer_all_questions_in_round():
             "forecast": [0.5] * 100,
             "resolved_to": [1] * 100,
             "question_type": ["dataset"] * 100,
+            "market_forecast": [np.nan] * 100,
         }
     )
 
@@ -1792,6 +1860,7 @@ def test_simulate_round_based_total_rounds():
             "forecast": [0.5] * 40,
             "resolved_to": [1] * 40,
             "question_type": ["dataset"] * 40,
+            "market_forecast": [np.nan] * 40,
         }
     )
 
@@ -1831,6 +1900,7 @@ def test_simulate_round_based_models_per_round_mean():
                     "forecast": 0.5,
                     "resolved_to": 1,
                     "question_type": "dataset",
+                    "market_forecast": np.nan,
                 }
             )
     df = pd.DataFrame(data)
@@ -1906,6 +1976,7 @@ def test_simulate_round_based_perfect_ranking_when_all_questions_sampled():
                     "forecast": forecast,
                     "resolved_to": outcome,
                     "question_type": "dataset",
+                    "market_forecast": np.nan,
                 }
             )
 
@@ -1984,6 +2055,7 @@ def test_simulate_round_based_perfect_ranking_multiple_simulations():
                     "forecast": forecast,
                     "resolved_to": outcome,
                     "question_type": "dataset",
+                    "market_forecast": np.nan,
                 }
             )
 
@@ -2282,6 +2354,7 @@ def test_skill_drift_improves_quality_avg():
                     forecast=p,
                     resolved_to=q % 2,
                     question_type="toy",
+                    market_forecast=np.nan,
                 )
             )
     df = pd.DataFrame(rows)
@@ -2327,6 +2400,7 @@ def test_difficulty_drift_hard_share_grows():
                     forecast=p if m != "RefModel" else 0.5,
                     resolved_to=1,
                     question_type="toy",
+                    market_forecast=np.nan,
                 )
             )
     df = pd.DataFrame(rows)
@@ -2449,6 +2523,7 @@ def test_persistence_60_percent():
                 forecast=0.5,
                 resolved_to=0,
                 question_type="dataset",
+                market_forecast=np.nan,
             )
             for m in models
             for q in question_ids
@@ -2517,6 +2592,7 @@ def test_no_duplicates_at_model_question_level(simulation_type, simulation_kwarg
                     "forecast": np.random.uniform(0.1, 0.9),
                     "resolved_to": np.random.choice([0, 1]),
                     "question_type": "dataset",
+                    "market_forecast": np.nan,
                 }
             )
 
