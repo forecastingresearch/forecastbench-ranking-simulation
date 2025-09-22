@@ -124,7 +124,7 @@ SIMULATION_SCENARIOS = [
         "simulation_kwargs": {
             "n_rounds": 5,
             "questions_per_round": 5,
-            "models_per_round_mean": 40,
+            "models_per_round_mean": 15,
         },
     },
     {
@@ -194,6 +194,21 @@ SIMULATION_SCENARIOS = [
         },
     },
     {
+        "name": "round_based_with_model_persistence_and_drift_sample_ample",
+        "description": "Round-based sampling with model drift \
+              and 70% model persistence across rounds, small sample",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 5,
+            "questions_per_round": 25,
+            "models_per_round_mean": 15,
+            "skill_temperature": lambda round_id: (-15 + 30.0 / 14.0 * round_id),
+            # Linear increase from -15 to 15 from round_id = 0 to 14
+            "model_persistence": 0.70,
+        },
+    },
+    {
         "name": "round_based_with_model_persistence_and_drift_GTP_4_reference",
         "description": "Round-based sampling with model drift \
               and 70% model persistence across rounds",
@@ -231,7 +246,36 @@ SIMULATION_SCENARIOS = [
 # for easy changes to ref_model
 BASE_RANKING_METHODS = {
     "Brier": (rank_by_brier, "avg_brier", True, {}),
-    "Diff-Adj. Brier": (rank_by_diff_adj_brier, "avg_diff_adj_brier", True, {}),
+    "Diff-Adj. Brier (w_mkt=0.00)": (
+        rank_by_diff_adj_brier,
+        "avg_diff_adj_brier",
+        True,
+        {},
+    ),
+    "Diff-Adj. Brier (w_mkt=0.25)": (
+        rank_by_diff_adj_brier,
+        "avg_diff_adj_brier",
+        True,
+        {"market_weight": 0.25},
+    ),
+    "Diff-Adj. Brier (w_mkt=0.50)": (
+        rank_by_diff_adj_brier,
+        "avg_diff_adj_brier",
+        True,
+        {"market_weight": 0.50},
+    ),
+    "Diff-Adj. Brier (w_mkt=0.75)": (
+        rank_by_diff_adj_brier,
+        "avg_diff_adj_brier",
+        True,
+        {"market_weight": 0.75},
+    ),
+    "Diff-Adj. Brier (w_mkt=1.00)": (
+        rank_by_diff_adj_brier,
+        "avg_diff_adj_brier",
+        True,
+        {"market_weight": 1.00},
+    ),
     "BSS (Pct.)": (
         rank_by_bss,
         "avg_bss",

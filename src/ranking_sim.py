@@ -36,7 +36,7 @@ def process_raw_data(input_name):
     df.loc[mask, "horizon"] = (
         pd.to_datetime(df.loc[mask, "resolution_date"])
         - pd.to_datetime(df.loc[mask, "forecast_due_date"])
-    ).astype(int)
+    ).dt.days.astype(int)
     if (df["horizon"] < 0).any():
         raise ValueError("Some resolution dates are before forecast_due_date.")
 
@@ -53,6 +53,14 @@ def process_raw_data(input_name):
         + df["forecast_due_date"].astype(str)
     )
 
+    # Add market forecast
+    mask = (df["model"] == "Naive Forecaster") & (df["question_type"] == "market")
+    df_temp = df[mask].copy()
+    df_temp.rename(columns={"forecast": "market_forecast"}, inplace=True)
+    df = pd.merge(
+        df, df_temp[["question_id", "market_forecast"]], on="question_id", how="left"
+    )
+
     # Filter out unresolved questions
     mask = df["resolved"].eq(True)
     df = df.loc[mask,]
@@ -65,8 +73,8 @@ def process_raw_data(input_name):
 # ===============
 
 
-def brier_score(df):
-    return (df["forecast"] - df["resolved_to"]) ** 2
+def brier_score(df, forecast_name="forecast"):
+    return (df[forecast_name] - df["resolved_to"]) ** 2
 
 
 def rank_by_brier(df):
@@ -84,7 +92,7 @@ def rank_by_brier(df):
     return model_scores
 
 
-def rank_by_diff_adj_brier(df):
+def rank_by_diff_adj_brier(df, market_weight=0.0):
     df = df.copy()
 
     # Return empty results for empty input
@@ -107,6 +115,21 @@ def rank_by_diff_adj_brier(df):
     # provided as the first FE variable, to ensure we have an estimate
     # for each question_id (otherwise one question may be dropped to
     # avoid perfect multicolinearity)
+    #
+    # For market questions only, market_weight is the weight given
+    # to the market Brier score when calculating question difficulty.
+    # In short, the question difficulty fixed effect
+    # is calculated as
+    #
+    #   market_weight * market_brier + (1 - market_weight) * b_j
+    #
+    # where b_j is the 2FE estimates
+
+    if market_weight < 0.0 or market_weight > 1.0:
+        raise ValueError(
+            f"Market weight should be in [0, 1] but instead equals {market_weight}"
+        )
+
     df["brier_score"] = brier_score(df)
 
     mod = pf.feols("brier_score ~ 1 | question_id + model", data=df)
@@ -118,13 +141,26 @@ def rank_by_diff_adj_brier(df):
         )
 
     # Merge question FE back to the original df
-    df_question_fe = pd.DataFrame(
-        [
-            {"question_id": key, "question_fe": value}
-            for key, value in dict_question_fe.items()
-        ]
-    )
-    df = pd.merge(df, df_question_fe, on="question_id", how="left")
+    df["question_fe"] = df["question_id"].map(dict_question_fe)
+
+    # For market-questions only, perform the market Brier
+    # adjustment
+    if market_weight > 0.0:
+        question_types = df["question_type"].unique()
+        is_market_only = (len(question_types) == 1) and (question_types[0] == "market")
+        if is_market_only:
+            # Get market Brier scores
+            df["market_brier_score"] = brier_score(df, forecast_name="market_forecast")
+
+            # Check for missing values
+            if df["market_brier_score"].isna().any():
+                raise ValueError("Some questions missing market Brier scores")
+
+            df["question_fe"] = (
+                market_weight * df["market_brier_score"]
+                + (1 - market_weight) * df["question_fe"]
+            )
+
     df["diff_adj_brier"] = df["brier_score"] - df["question_fe"]
 
     # Calculate average difficulty-adj. Brier score per model
@@ -360,7 +396,16 @@ def simulate_random_sampling(df, n_questions_per_model, ref_model="Always 0.5"):
 
     # Get data on forecasts and realizations from the original dataset
     df_results = df_samples.merge(
-        df[["model", "question_id", "forecast", "resolved_to", "question_type"]],
+        df[
+            [
+                "model",
+                "question_id",
+                "forecast",
+                "market_forecast",
+                "resolved_to",
+                "question_type",
+            ]
+        ],
         on=["model", "question_id"],
         how="left",
     )
@@ -687,7 +732,16 @@ def simulate_round_based(
     # Merge with original data to get forecasts and outcomes
     # round_id ensures uniqueness during merge
     df_results = df_samples.merge(
-        df[["model", "question_id", "forecast", "resolved_to", "question_type"]],
+        df[
+            [
+                "model",
+                "question_id",
+                "forecast",
+                "market_forecast",
+                "resolved_to",
+                "question_type",
+            ]
+        ],
         on=["model", "question_id"],
         how="left",
     )
