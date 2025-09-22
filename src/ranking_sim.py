@@ -36,7 +36,7 @@ def process_raw_data(input_name):
     df.loc[mask, "horizon"] = (
         pd.to_datetime(df.loc[mask, "resolution_date"])
         - pd.to_datetime(df.loc[mask, "forecast_due_date"])
-    ).astype(int)
+    ).dt.days.astype(int)
     if (df["horizon"] < 0).any():
         raise ValueError("Some resolution dates are before forecast_due_date.")
 
