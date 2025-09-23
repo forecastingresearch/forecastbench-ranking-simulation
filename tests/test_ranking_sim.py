@@ -224,6 +224,142 @@ def test_rank_by_diff_adj_mkt_weighting():
     assert (df_test["model"] == diff_adj_ranking["model"]).all()
 
 
+def test_rank_by_diff_adj_fe_sampling():
+    """Test that diff-adj Brier returns different rankings
+    when not all models are sampled"""
+
+    # Create data where model subset matters for FE estimation
+    # Model_A: Good at Q1, Q2, bad at Q3
+    # Model_B: Bad at Q1, Q2, good at Q3
+    # Model_C: Consistently mediocre
+    # Model_D: Opposite of Model_C
+
+    df = pd.DataFrame(
+        [
+            # Question 1 (outcome = 1)
+            {
+                "model": "Model_A",
+                "question_id": "q1",
+                "forecast": 0.9,
+                "resolved_to": 1,
+                "question_type": "market",
+                "market_forecast": 0.6,
+            },
+            {
+                "model": "Model_B",
+                "question_id": "q1",
+                "forecast": 0.2,
+                "resolved_to": 1,
+                "question_type": "market",
+                "market_forecast": 0.6,
+            },
+            {
+                "model": "Model_C",
+                "question_id": "q1",
+                "forecast": 0.5,
+                "resolved_to": 1,
+                "question_type": "market",
+                "market_forecast": 0.6,
+            },
+            {
+                "model": "Model_D",
+                "question_id": "q1",
+                "forecast": 0.5,
+                "resolved_to": 1,
+                "question_type": "market",
+                "market_forecast": 0.6,
+            },
+            # Question 2 (outcome = 0)
+            {
+                "model": "Model_A",
+                "question_id": "q2",
+                "forecast": 0.1,
+                "resolved_to": 0,
+                "question_type": "market",
+                "market_forecast": 0.4,
+            },
+            {
+                "model": "Model_B",
+                "question_id": "q2",
+                "forecast": 0.8,
+                "resolved_to": 0,
+                "question_type": "market",
+                "market_forecast": 0.4,
+            },
+            {
+                "model": "Model_C",
+                "question_id": "q2",
+                "forecast": 0.5,
+                "resolved_to": 0,
+                "question_type": "market",
+                "market_forecast": 0.4,
+            },
+            {
+                "model": "Model_D",
+                "question_id": "q2",
+                "forecast": 0.5,
+                "resolved_to": 0,
+                "question_type": "market",
+                "market_forecast": 0.4,
+            },
+            # Question 3 (outcome = 1)
+            {
+                "model": "Model_A",
+                "question_id": "q3",
+                "forecast": 0.3,
+                "resolved_to": 1,
+                "question_type": "market",
+                "market_forecast": 0.5,
+            },
+            {
+                "model": "Model_B",
+                "question_id": "q3",
+                "forecast": 0.9,
+                "resolved_to": 1,
+                "question_type": "market",
+                "market_forecast": 0.5,
+            },
+            {
+                "model": "Model_C",
+                "question_id": "q3",
+                "forecast": 0.6,
+                "resolved_to": 1,
+                "question_type": "market",
+                "market_forecast": 0.5,
+            },
+            {
+                "model": "Model_D",
+                "question_id": "q3",
+                "forecast": 0.4,
+                "resolved_to": 1,
+                "question_type": "market",
+                "market_forecast": 0.5,
+            },
+        ]
+    )
+
+    np.random.seed(42)
+    diff_adj_ranking_full = rank_by_diff_adj_brier(df, fe_models_frac=1.0)
+
+    np.random.seed(123)  # Different seed for different sampling
+    diff_adj_ranking_sampled = rank_by_diff_adj_brier(df, fe_models_frac=0.25)
+
+    diff_adj_ranking_sampled.rename(
+        columns={"avg_diff_adj_brier": "avg_diff_adj_brier_sampled"}, inplace=True
+    )
+
+    diff_adj_ranking_full = pd.merge(
+        diff_adj_ranking_full, diff_adj_ranking_sampled, on="model", how="left"
+    )
+
+    diff_adj_ranking_full["brier_delta"] = (
+        diff_adj_ranking_full["avg_diff_adj_brier"]
+        - diff_adj_ranking_full["avg_diff_adj_brier_sampled"]
+    )
+
+    assert (diff_adj_ranking_full["brier_delta"].abs() > 1e-3).all()
+
+
 def test_rank_by_diff_adj_brier_empty_dataframe():
     """Test that rank_by_diff_adj_brier handles empty dataframe gracefully."""
     df_empty = pd.DataFrame(columns=["model", "question_id", "forecast", "resolved_to"])
