@@ -276,6 +276,36 @@ BASE_RANKING_METHODS = {
         True,
         {"market_weight": 1.00},
     ),
+    "Diff-Adj. Brier (w_mkt=0.00, fe_frac=0.50)": (
+        rank_by_diff_adj_brier,
+        "avg_diff_adj_brier",
+        True,
+        {"market_weight": 0.00, "fe_models_frac": 0.5},
+    ),
+    "Diff-Adj. Brier (w_mkt=0.25, fe_frac=0.50)": (
+        rank_by_diff_adj_brier,
+        "avg_diff_adj_brier",
+        True,
+        {"market_weight": 0.25, "fe_models_frac": 0.5},
+    ),
+    "Diff-Adj. Brier (w_mkt=0.50, fe_frac=0.50)": (
+        rank_by_diff_adj_brier,
+        "avg_diff_adj_brier",
+        True,
+        {"market_weight": 0.50, "fe_models_frac": 0.5},
+    ),
+    "Diff-Adj. Brier (w_mkt=0.75, fe_frac=0.50)": (
+        rank_by_diff_adj_brier,
+        "avg_diff_adj_brier",
+        True,
+        {"market_weight": 0.75, "fe_models_frac": 0.5},
+    ),
+    "Diff-Adj. Brier (w_mkt=1.00, fe_frac=0.50)": (
+        rank_by_diff_adj_brier,
+        "avg_diff_adj_brier",
+        True,
+        {"market_weight": 1.00, "fe_models_frac": 0.5},
+    ),
     "BSS (Pct.)": (
         rank_by_bss,
         "avg_bss",

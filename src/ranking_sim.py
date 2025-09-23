@@ -92,7 +92,7 @@ def rank_by_brier(df):
     return model_scores
 
 
-def rank_by_diff_adj_brier(df, market_weight=0.0):
+def rank_by_diff_adj_brier(df, market_weight=0.0, fe_models_frac=1.0):
     df = df.copy()
 
     # Return empty results for empty input
@@ -130,14 +130,51 @@ def rank_by_diff_adj_brier(df, market_weight=0.0):
             f"Market weight should be in [0, 1] but instead equals {market_weight}"
         )
 
+    if fe_models_frac <= 0.0 or fe_models_frac > 1.0:
+        raise ValueError(
+            f"Fraction of models used in 2FE estimation should be in (0, 1] "
+            f"but instead equals {fe_models_frac}"
+        )
+
     df["brier_score"] = brier_score(df)
 
-    mod = pf.feols("brier_score ~ 1 | question_id + model", data=df)
+    if fe_models_frac < 1.0:
+        # Differentiate between round-based and
+        # random sampling schemes
+        if "round_id" in df.columns:
+            # Round-based sampling: sample fraction per round
+            df_fe = pd.DataFrame()
+            for round_id in df["round_id"].unique():
+                df_round_data = df[df["round_id"] == round_id].copy()
+                round_models = df_round_data["model"].unique()
+
+                # Sample fraction of models for this round
+                n_fe_models = max(1, int(len(round_models) * fe_models_frac))
+                fe_models = np.random.choice(
+                    round_models, size=n_fe_models, replace=False
+                )
+                mask = df_round_data["model"].isin(fe_models)
+                df_round_fe_data = df_round_data[mask]
+
+                # Concatenate
+                df_fe = pd.concat([df_fe, df_round_fe_data], ignore_index=True)
+        else:
+            # Random sampling: sample fraction globally
+            models = df["model"].unique()
+            n_fe_models = max(1, int(len(models) * fe_models_frac))
+            fe_models = np.random.choice(models, size=n_fe_models, replace=False)
+            mask = df["model"].isin(fe_models)
+            df_fe = df[mask]
+    else:
+        df_fe = df.copy()
+
+    # Estimate the 2FE model
+    mod = pf.feols("brier_score ~ 1 | question_id + model", data=df_fe)
     dict_question_fe = mod.fixef()["C(question_id)"]
     if len(dict_question_fe) != len(df["question_id"].unique()):
         raise ValueError(
-            f"Estimated num. of question fixed effects ({len(dict_question_fe)}) \
-                not equal to num. of questions ({len(df['question_id'].unique())})"
+            f"Estimated num. of question fixed effects ({len(dict_question_fe)}) "
+            f"not equal to num. of questions ({len(df['question_id'].unique())})"
         )
 
     # Merge question FE back to the original df
