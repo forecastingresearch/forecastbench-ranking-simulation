@@ -28,7 +28,7 @@ from ranking_sim import (
 # =====================================================
 # GLOBAL CONFIGURATION
 # =====================================================
-N_SIMULATIONS = 1  # Number of simulations for each scenario
+N_SIMULATIONS = 1000  # Number of simulations for each scenario
 DATASET_WEIGHT = 0.5  # Weight for dataset vs market questions
 RANDOM_SEED = 20250527  # Random seed for replicability
 FE_MODELS_FRAC = 0.5  # Fraction of models used for FE estimatino
@@ -55,7 +55,7 @@ SIMULATION_SCENARIOS = [
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_random_sampling,
         "simulation_kwargs": {
-            "n_questions_per_model": 50,
+            "n_questions_per_model": 500,
         },
     },
     {
@@ -512,10 +512,12 @@ def generate_latex_tables(combined_summary):
         latex_content.append("\\begin{table}[ht]")
         latex_content.append("\\centering")
         caption_text = (
-            table_title + ". \\emph{Spearman}: Spearman rank correlation coefficient relative to the true ranking. "
+            table_title + ". \\emph{Spearman}: Spearman rank correlation coefficient "
+            "relative to the true ranking. "
             "\\emph{Top-20}: Top-20 retention rate relative to the true ranking. "
             "\\emph{Top-50}: Top-50 retention rate relative to the true ranking. "
-            "\\emph{Med. Disp.}: Median displacement relative to the true ranking, in ranks. "
+            "\\emph{Med. Disp.}: Median displacement relative to the true ranking, "
+            "in ranks. "
             "See Section~\\ref{sec:simulation_framework} for additional details."
         )
         latex_content.append("\\caption{" + caption_text + "}")
@@ -567,7 +569,8 @@ def generate_latex_tables(combined_summary):
                 )
 
                 latex_content.append(
-                    f"{method_display} & {spearman} & {top20} & {top50} & {med_disp} \\\\"
+                    f"{method_display} & {spearman} & {top20} "
+                    f"& {top50} & {med_disp} \\\\"
                 )
 
             # Add spacing between scenarios (except for the last one)
