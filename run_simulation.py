@@ -28,7 +28,7 @@ from ranking_sim import (
 # =====================================================
 # GLOBAL CONFIGURATION
 # =====================================================
-N_SIMULATIONS = 1000  # Number of simulations for each scenario
+N_SIMULATIONS = 1  # Number of simulations for each scenario
 DATASET_WEIGHT = 0.5  # Weight for dataset vs market questions
 RANDOM_SEED = 20250527  # Random seed for replicability
 FE_MODELS_FRAC = 0.5  # Fraction of models used for FE estimatino
@@ -55,7 +55,7 @@ SIMULATION_SCENARIOS = [
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_random_sampling,
         "simulation_kwargs": {
-            "n_questions_per_model": 500,
+            "n_questions_per_model": 50,
         },
     },
     {
@@ -441,6 +441,165 @@ def run_scenario(df, scenario, filter_msg=None):
     return results, error_count
 
 
+def generate_latex_tables(combined_summary):
+    """Generate LaTeX tables for the simulation results."""
+    print("\n" + "=" * 60)
+    print("Generating LaTeX tables...")
+
+    # Define scenario groups
+    basic_scenarios = [
+        "random_sampling_baseline",
+        "round_based_baseline",
+        "round_based_drift",
+    ]
+
+    complex_scenarios = [
+        "round_based_low_models",
+        "round_based_high_models",
+        "round_based_high_discrepancy",
+        "round_based_baseline_low_discrepancy",
+    ]
+
+    # Define method order and display names
+    methods_order = [
+        "Brier",
+        "BSS (Pct.)",
+        "BSS (Abs.)",
+        "Peer Score",
+        "Diff-Adj. Brier (w_mkt=0.00)",
+        "Diff-Adj. Brier (w_mkt=0.25)",
+        "Diff-Adj. Brier (w_mkt=0.50)",
+        "Diff-Adj. Brier (w_mkt=0.75)",
+        "Diff-Adj. Brier (w_mkt=1.00)",
+    ]
+
+    # Method display names for table
+    method_display_names = {
+        "Brier": "Raw Brier",
+        "BSS (Pct.)": "BSS (Pct.)",
+        "BSS (Abs.)": "BSS (Abs.)",
+        "Peer Score": "Peer Score",
+        "Diff-Adj. Brier (w_mkt=0.00)": "Diff.-Adj. Brier ($w_{\\text{mkt}} = 0.00$)",
+        "Diff-Adj. Brier (w_mkt=0.25)": "Diff.-Adj. Brier ($w_{\\text{mkt}} = 0.25$)",
+        "Diff-Adj. Brier (w_mkt=0.50)": "Diff.-Adj. Brier ($w_{\\text{mkt}} = 0.50$)",
+        "Diff-Adj. Brier (w_mkt=0.75)": "Diff.-Adj. Brier ($w_{\\text{mkt}} = 0.75$)",
+        "Diff-Adj. Brier (w_mkt=1.00)": "Diff.-Adj. Brier ($w_{\\text{mkt}} = 1.00$)",
+    }
+
+    # Scenario display names
+    scenario_display_names = {
+        "random_sampling_baseline": "Random sampling",
+        "round_based_baseline": "Round-based sampling",
+        "round_based_drift": "Round-based sampling with drift",
+        "round_based_low_models": "Round-based sampling, low models",
+        "round_based_high_models": "Round-based sampling, high models",
+        "round_based_high_discrepancy": "Round-based sampling, high discrepancy",
+        "round_based_baseline_low_discrepancy": "Round-based sampling, low discrepancy",
+    }
+
+    def create_latex_table(scenarios, table_title, filename):
+        """Create LaTeX table for given scenarios."""
+        # Filter data for these scenarios
+        df_filtered = combined_summary[
+            combined_summary["scenario"].isin(scenarios)
+        ].copy()
+
+        if len(df_filtered) == 0:
+            print(f"Warning: No data found for scenarios: {scenarios}")
+            return
+
+        latex_content = []
+        latex_content.append("\\begin{table}[ht]")
+        latex_content.append("\\centering")
+        caption_text = (
+            table_title + ". \\emph{Spearman}: Spearman rank correlation coefficient relative to the true ranking. "
+            "\\emph{Top-20}: Top-20 retention rate relative to the true ranking. "
+            "\\emph{Top-50}: Top-50 retention rate relative to the true ranking. "
+            "\\emph{Med. Disp.}: Median displacement relative to the true ranking, in ranks. "
+            "See Section~\\ref{sec:simulation_framework} for additional details."
+        )
+        latex_content.append("\\caption{" + caption_text + "}")
+
+        # Create column specification: Method name + 4 metrics
+        latex_content.append("\\begin{tabular}{lcccc}")
+        latex_content.append("\\toprule")
+
+        # Create header
+        latex_content.append(" & Spearman & Top-20 & Top-50 & Med. Disp. \\\\")
+        latex_content.append("\\midrule")
+
+        # Group scenarios and add data rows
+        for i, scenario in enumerate(scenarios):
+            # Add scenario header
+            scenario_display = scenario_display_names.get(scenario, scenario)
+            latex_content.append(f"\\textit{{{scenario_display}}} & & & & \\\\")
+
+            # Add methods for this scenario
+            for method in methods_order:
+                scenario_data = df_filtered[
+                    (df_filtered["scenario"] == scenario)
+                    & (df_filtered["method"] == method)
+                ]
+
+                if len(scenario_data) == 0:
+                    continue
+
+                data = scenario_data.iloc[0]
+                method_display = method_display_names.get(method, method)
+
+                spearman = (
+                    f"{data['Spearman']:.2f}" if pd.notna(data["Spearman"]) else "-"
+                )
+                top20 = (
+                    f"{data['Top-20 Retention']:.2f}"
+                    if pd.notna(data["Top-20 Retention"])
+                    else "-"
+                )
+                top50 = (
+                    f"{data['Top-50 Retention']:.2f}"
+                    if pd.notna(data["Top-50 Retention"])
+                    else "-"
+                )
+                med_disp = (
+                    f"{data['Median Displacement']:.0f}"
+                    if pd.notna(data["Median Displacement"])
+                    else "-"
+                )
+
+                latex_content.append(
+                    f"{method_display} & {spearman} & {top20} & {top50} & {med_disp} \\\\"
+                )
+
+            # Add spacing between scenarios (except for the last one)
+            if i < len(scenarios) - 1:
+                latex_content.append("\\midrule")
+
+        latex_content.append("\\bottomrule")
+        latex_content.append("\\end{tabular}")
+        latex_content.append("\\end{table}")
+
+        # Write to file
+        filepath = f"{RESULTS_FOLDER}/{filename}"
+        with open(filepath, "w") as f:
+            f.write("\n".join(latex_content))
+
+        print(f"LaTeX table saved to: {filepath}")
+        return "\n".join(latex_content)
+
+    # Generate both tables
+    create_latex_table(
+        basic_scenarios,
+        "Simulation Results: Basic Scenarios",
+        "latex_table_basic_scenarios.tex",
+    )
+
+    create_latex_table(
+        complex_scenarios,
+        "Simulation Results: Complex Scenarios",
+        "latex_table_complex_scenarios.tex",
+    )
+
+
 def main():
     print("Loading data...")
     df = process_raw_data(f"{INPUT_FOLDER}/{DATAFILE_NAME}")
@@ -525,6 +684,9 @@ def main():
     combined_summary = pd.concat(all_summaries, ignore_index=True)
     combined_summary.to_csv(f"{RESULTS_FOLDER}/all_scenarios_summary.csv", index=False)
     print(f"\n\nSaved combined summary to: {RESULTS_FOLDER}/all_scenarios_summary.csv")
+
+    # Generate LaTeX tables
+    generate_latex_tables(combined_summary)
 
 
 if __name__ == "__main__":
