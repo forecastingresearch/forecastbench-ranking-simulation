@@ -65,6 +65,31 @@ def process_raw_data(input_name):
     mask = df["resolved"].eq(True)
     df = df.loc[mask,]
 
+    # Calculate discrepancy between "market difficulty" (= market's Brier score)
+    # and "question difficulty" = (avg. Brier score of all forecasters)
+    # for each question
+    df["brier_score"] = brier_score(df)
+
+    mask = df["question_type"] == "market"
+    df.loc[mask, "market_brier_score"] = brier_score(
+        df[mask], forecast_name="market_value_on_due_date"
+    )
+    question_difficulty = df.groupby("question_id")["brier_score"].mean()
+    df["question_difficulty"] = df["question_id"].map(question_difficulty)
+    df["question_market_discrepancy"] = (
+        df["question_difficulty"] - df["market_brier_score"]
+    ).abs()
+    df["median_question_market_discrepancy"] = (
+        df[["question_id", "question_market_discrepancy"]]
+        .drop_duplicates()["question_market_discrepancy"]
+        .median()
+    )
+    df.drop(
+        ["brier_score", "market_brier_score", "question_difficulty"],
+        axis=1,
+        inplace=True,
+    )
+
     return df
 
 
