@@ -65,6 +65,31 @@ def process_raw_data(input_name):
     mask = df["resolved"].eq(True)
     df = df.loc[mask,]
 
+    # Calculate discrepancy between "market difficulty" (= market's Brier score)
+    # and "question difficulty" = (avg. Brier score of all forecasters)
+    # for each question
+    df["brier_score"] = brier_score(df)
+
+    mask = df["question_type"] == "market"
+    df.loc[mask, "market_brier_score"] = brier_score(
+        df[mask], forecast_name="market_value_on_due_date"
+    )
+    question_difficulty = df.groupby("question_id")["brier_score"].mean()
+    df["question_difficulty"] = df["question_id"].map(question_difficulty)
+    df["question_market_discrepancy"] = (
+        df["question_difficulty"] - df["market_brier_score"]
+    ).abs()
+    df["median_question_market_discrepancy"] = (
+        df[["question_id", "question_market_discrepancy"]]
+        .drop_duplicates()["question_market_discrepancy"]
+        .median()
+    )
+    df.drop(
+        ["brier_score", "market_brier_score", "question_difficulty"],
+        axis=1,
+        inplace=True,
+    )
+
     return df
 
 
@@ -139,32 +164,25 @@ def rank_by_diff_adj_brier(df, market_weight=0.0, fe_models_frac=1.0):
     df["brier_score"] = brier_score(df)
 
     if fe_models_frac < 1.0:
-        # Differentiate between round-based and
-        # random sampling schemes
-        if "round_id" in df.columns:
-            # Round-based sampling: sample fraction per round
-            df_fe = pd.DataFrame()
-            for round_id in df["round_id"].unique():
-                df_round_data = df[df["round_id"] == round_id].copy()
-                round_models = df_round_data["model"].unique()
+        # Determine which column to group by when sampling models.
+        # For round-based sampling, a fraction of all models in each round is used
+        # for estimating the question FEs. For random-based sampling, for each question,
+        # a fraction of models is used.
+        group_col = "round_id" if "round_id" in df.columns else "question_id"
 
-                # Sample fraction of models for this round
-                n_fe_models = max(1, int(len(round_models) * fe_models_frac))
-                fe_models = np.random.choice(
-                    round_models, size=n_fe_models, replace=False
-                )
-                mask = df_round_data["model"].isin(fe_models)
-                df_round_fe_data = df_round_data[mask]
+        df_fe = pd.DataFrame()
+        for group_id in df[group_col].unique():
+            df_group_data = df[df[group_col] == group_id].copy()
+            group_models = df_group_data["model"].unique()
 
-                # Concatenate
-                df_fe = pd.concat([df_fe, df_round_fe_data], ignore_index=True)
-        else:
-            # Random sampling: sample fraction globally
-            models = df["model"].unique()
-            n_fe_models = max(1, int(len(models) * fe_models_frac))
-            fe_models = np.random.choice(models, size=n_fe_models, replace=False)
-            mask = df["model"].isin(fe_models)
-            df_fe = df[mask]
+            # Sample fraction of models for this group
+            n_fe_models = max(1, int(len(group_models) * fe_models_frac))
+            fe_models = np.random.choice(group_models, size=n_fe_models, replace=False)
+            mask = df_group_data["model"].isin(fe_models)
+            df_group_fe_data = df_group_data[mask]
+
+            # Concatenate
+            df_fe = pd.concat([df_fe, df_group_fe_data], ignore_index=True)
     else:
         df_fe = df.copy()
 
