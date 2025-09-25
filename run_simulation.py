@@ -23,9 +23,7 @@ from ranking_sim import (
     top_k_retention,
 )
 
-# EXPECTED RUNTIME: ~3-4 minutes per scenario on a standard
-# laptop with N_SIMULATIONS = 1000; with 12 scenarios, total
-# expected runtime is around 40 minutes.
+# EXPECTED RUNTIME: ~12 hours with N_SIMULATIONS = 1000.
 
 # =====================================================
 # GLOBAL CONFIGURATION
@@ -33,6 +31,7 @@ from ranking_sim import (
 N_SIMULATIONS = 1000  # Number of simulations for each scenario
 DATASET_WEIGHT = 0.5  # Weight for dataset vs market questions
 RANDOM_SEED = 20250527  # Random seed for replicability
+FE_MODELS_FRAC = 0.5  # Fraction of models used for FE estimatino
 
 INPUT_FOLDER = "./data/raw"
 DATAFILE_NAME = "llm_and_human_leaderboard_overall.pkl"
@@ -52,192 +51,101 @@ RESULTS_FOLDER = "./data/results"
 SIMULATION_SCENARIOS = [
     {
         "name": "random_sampling_baseline",
-        "description": "Random sampling with ~30 overlapping questions between models",
+        "description": "Random sampling",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_random_sampling,
         "simulation_kwargs": {
-            # With 473 questions to sample from, total epxected
-            # number of overlapping questinos between two models is
-            # 473 * (n_questions_per_model / 473) * (n_questions_per_model / 473) =
-            "n_questions_per_model": 125,
+            "n_questions_per_model": 500,
         },
     },
     {
         "name": "round_based_baseline",
-        "description": "Round-based sampling with ~30 overlapping questions per round, \
-            and ~100 questions per model overall; retention between rounds is ~30%",
+        "description": "Round-based sampling, baseline",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_round_based,
         "simulation_kwargs": {
-            # With 473 questions to sample from and 141 models
-            # to sample from, the total expected number of overlapping
-            # questions between two models is:
-            # n_rounds * (models_per_round_mean / 141)
-            #   * (models_per_round_mean - 1) / 141) * questions_per_round;
-            # (-1) because we sample models without replacement
-            # Total number of expected questions per model is
-            # n_rounds * questions_per_round * (models_per_round_mean / 141)
-            # Probability that a model participats in round R + 1, conditional
-            # on participating in round R is:
-            # models_per_round_mean / 141
-            "n_rounds": 15,
-            "questions_per_round": 25,
-            "models_per_round_mean": 40,
-        },
-    },
-    {
-        "name": "random_sampling_GPT4_reference",
-        "description": "Random sampling with GPT-4 as reference model",
-        "ref_model": "GPT-4 (zero shot)",
-        "simulation_func": simulate_random_sampling,
-        "simulation_kwargs": {
-            "n_questions_per_model": 125,
-        },
-    },
-    {
-        "name": "round_based_GPT4_reference",
-        "description": "Round-based sampling with 25 overlapping questions per round",
-        "ref_model": "GPT-4 (zero shot)",
-        "simulation_func": simulate_round_based,
-        "simulation_kwargs": {
-            "n_rounds": 15,
-            "questions_per_round": 25,
-            "models_per_round_mean": 40,
-        },
-    },
-    {
-        "name": "random_sampling_small_sample",
-        "description": "Random sampling with a small sample size \
-              with ~2 overlapping questions between models",
-        "ref_model": "Naive Forecaster",
-        "simulation_func": simulate_random_sampling,
-        "simulation_kwargs": {
-            "n_questions_per_model": 30,
-        },
-    },
-    {
-        "name": "round_based_small_sample",
-        "description": "Round-based sampling with a small sample size \
-              with ~2 overlapping questinos between models",
-        "ref_model": "Naive Forecaster",
-        "simulation_func": simulate_round_based,
-        "simulation_kwargs": {
-            "n_rounds": 5,
-            "questions_per_round": 5,
-            "models_per_round_mean": 15,
-        },
-    },
-    {
-        "name": "random_sampling_always_half_ref",
-        "description": "Random sampling using Always 0.5 as reference. \
-            Included for sanity testing purposes.",
-        "ref_model": "Always 0.5",
-        "simulation_func": simulate_random_sampling,
-        "simulation_kwargs": {
-            "n_questions_per_model": 125,
-        },
-    },
-    {
-        "name": "round_based_model_drift",
-        "description": "Round-based sampling with increasing model quality over time; \
-            calibrated to yield a ~0.05 Brier improvement from first to final round in \
-            average model performance.",
-        "ref_model": "Naive Forecaster",
-        "simulation_func": simulate_round_based,
-        "simulation_kwargs": {
-            "n_rounds": 15,
-            "questions_per_round": 25,
-            "models_per_round_mean": 40,
-            "skill_temperature": lambda round_id: (-15 + 30.0 / 14.0 * round_id),
-            # Linear increase from -15 to 15 from round_id = 0 to 14
-        },
-    },
-    {
-        "name": "round_based_question_drift",
-        "description": "Round-based sampling with some easier rounds; easier rounds \
-            have questions with ~0.07 better Brier scores.",
-        "ref_model": "Naive Forecaster",
-        "simulation_func": simulate_round_based,
-        "simulation_kwargs": {
-            "n_rounds": 15,
-            "questions_per_round": 25,
-            "models_per_round_mean": 40,
-            "difficulty_temperature": lambda round_id: -10.0 if round_id <= 5 else 0.0,
-        },
-    },
-    {
-        "name": "round_based_with_model_persistence",
-        "description": "Round-based sampling with baseline parameters \
-              and 70% model persistence across rounds",
-        "ref_model": "Naive Forecaster",
-        "simulation_func": simulate_round_based,
-        "simulation_kwargs": {
-            "n_rounds": 15,
-            "questions_per_round": 25,
-            "models_per_round_mean": 40,
+            "n_rounds": 10,
+            "questions_per_round": 500,
+            "models_per_round_mean": 30,
             "model_persistence": 0.70,
         },
     },
     {
-        "name": "round_based_with_model_persistence_and_drift",
-        "description": "Round-based sampling with model drift \
-              and 70% model persistence across rounds",
+        "name": "round_based_drift",
+        "description": "Round-based sampling, model and question drift",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_round_based,
         "simulation_kwargs": {
-            "n_rounds": 15,
-            "questions_per_round": 25,
-            "models_per_round_mean": 40,
-            "skill_temperature": lambda round_id: (-15 + 30.0 / 14.0 * round_id),
-            # Linear increase from -15 to 15 from round_id = 0 to 14
+            "n_rounds": 10,
+            "questions_per_round": 500,
+            "models_per_round_mean": 30,
+            "model_persistence": 0.70,
+            # Linear model skill temparature increase from -15 to 15 from round_id = 0
+            # to 14. Calibrated to yield an improvement of ~0.06 in the avg. Brier
+            # score from the first to the final round
+            "skill_temperature": lambda round_id: (-15 + 30.0 / 9.0 * round_id),
+            # Even rounds are more difficult than odd rounds. Calibrated so that
+            # the difference between rounds is ~0.09 in the avg. Brier score
+            "difficulty_temperature": lambda round_id: (
+                -5.0 if round_id % 2 == 0 else 5.0
+            ),
+        },
+    },
+    {
+        "name": "round_based_low_models",
+        "description": "Round-based sampling, low number of models",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 10,
+            "questions_per_round": 500,
+            "models_per_round_mean": 10,
             "model_persistence": 0.70,
         },
     },
     {
-        "name": "round_based_with_model_persistence_and_drift_sample_ample",
-        "description": "Round-based sampling with model drift \
-              and 70% model persistence across rounds, small sample",
+        "name": "round_based_high_models",
+        "description": "Round-based sampling, high number of models",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_round_based,
         "simulation_kwargs": {
-            "n_rounds": 5,
-            "questions_per_round": 25,
-            "models_per_round_mean": 15,
-            "skill_temperature": lambda round_id: (-15 + 30.0 / 14.0 * round_id),
-            # Linear increase from -15 to 15 from round_id = 0 to 14
+            "n_rounds": 10,
+            "questions_per_round": 500,
+            "models_per_round_mean": 50,
             "model_persistence": 0.70,
         },
     },
     {
-        "name": "round_based_with_model_persistence_and_drift_GTP_4_reference",
-        "description": "Round-based sampling with model drift \
-              and 70% model persistence across rounds",
-        "ref_model": "GPT-4 (zero shot)",
-        "simulation_func": simulate_round_based,
-        "simulation_kwargs": {
-            "n_rounds": 15,
-            "questions_per_round": 25,
-            "models_per_round_mean": 40,
-            "skill_temperature": lambda round_id: (-15 + 30.0 / 14.0 * round_id),
-            # Linear increase from -15 to 15 from round_id = 0 to 14
-            "model_persistence": 0.70,
-        },
-    },
-    {
-        "name": "round_based_with_model_persistence_and_drift_real_world_sampling",
-        "description": "Round-based sampling with model drift, \
-              70% model persistence across rounds, and real-world data sampling",
+        "name": "round_based_high_discrepancy",
+        "description": "Round-based sampling, high-discrepancy questions",
         "ref_model": "Naive Forecaster",
         "simulation_func": simulate_round_based,
         "simulation_kwargs": {
-            "n_rounds": 15,
-            "questions_per_round": 25,
-            "models_per_round_mean": 40,
-            "skill_temperature": lambda round_id: (-15 + 30.0 / 14.0 * round_id),
-            # Linear increase from -15 to 15 from round_id = 0 to 14
+            "n_rounds": 10,
+            "questions_per_round": 500,
+            "models_per_round_mean": 30,
             "model_persistence": 0.70,
-            "fixed_dataset_market_question_sampling": True,
         },
+        "filter_func": lambda df: (df["question_type"] == "dataset")
+        | (
+            df["question_market_discrepancy"] > df["median_question_market_discrepancy"]
+        ),
+    },
+    {
+        "name": "round_based_baseline_low_discrepancy",
+        "description": "Round-based sampling, low-discrepancy questions",
+        "ref_model": "Naive Forecaster",
+        "simulation_func": simulate_round_based,
+        "simulation_kwargs": {
+            "n_rounds": 10,
+            "questions_per_round": 500,
+            "models_per_round_mean": 30,
+            "model_persistence": 0.70,
+        },
+        "filter_func": lambda df: (df["question_type"] == "dataset")
+        | (
+            df["question_market_discrepancy"] < df["median_question_market_discrepancy"]
+        ),
     },
 ]
 
@@ -250,61 +158,31 @@ BASE_RANKING_METHODS = {
         rank_by_diff_adj_brier,
         "avg_diff_adj_brier",
         True,
-        {},
+        {"market_weight": 0.00, "fe_models_frac": FE_MODELS_FRAC},
     ),
     "Diff-Adj. Brier (w_mkt=0.25)": (
         rank_by_diff_adj_brier,
         "avg_diff_adj_brier",
         True,
-        {"market_weight": 0.25},
+        {"market_weight": 0.25, "fe_models_frac": FE_MODELS_FRAC},
     ),
     "Diff-Adj. Brier (w_mkt=0.50)": (
         rank_by_diff_adj_brier,
         "avg_diff_adj_brier",
         True,
-        {"market_weight": 0.50},
+        {"market_weight": 0.50, "fe_models_frac": FE_MODELS_FRAC},
     ),
     "Diff-Adj. Brier (w_mkt=0.75)": (
         rank_by_diff_adj_brier,
         "avg_diff_adj_brier",
         True,
-        {"market_weight": 0.75},
+        {"market_weight": 0.75, "fe_models_frac": FE_MODELS_FRAC},
     ),
     "Diff-Adj. Brier (w_mkt=1.00)": (
         rank_by_diff_adj_brier,
         "avg_diff_adj_brier",
         True,
-        {"market_weight": 1.00},
-    ),
-    "Diff-Adj. Brier (w_mkt=0.00, fe_frac=0.50)": (
-        rank_by_diff_adj_brier,
-        "avg_diff_adj_brier",
-        True,
-        {"market_weight": 0.00, "fe_models_frac": 0.5},
-    ),
-    "Diff-Adj. Brier (w_mkt=0.25, fe_frac=0.50)": (
-        rank_by_diff_adj_brier,
-        "avg_diff_adj_brier",
-        True,
-        {"market_weight": 0.25, "fe_models_frac": 0.5},
-    ),
-    "Diff-Adj. Brier (w_mkt=0.50, fe_frac=0.50)": (
-        rank_by_diff_adj_brier,
-        "avg_diff_adj_brier",
-        True,
-        {"market_weight": 0.50, "fe_models_frac": 0.5},
-    ),
-    "Diff-Adj. Brier (w_mkt=0.75, fe_frac=0.50)": (
-        rank_by_diff_adj_brier,
-        "avg_diff_adj_brier",
-        True,
-        {"market_weight": 0.75, "fe_models_frac": 0.5},
-    ),
-    "Diff-Adj. Brier (w_mkt=1.00, fe_frac=0.50)": (
-        rank_by_diff_adj_brier,
-        "avg_diff_adj_brier",
-        True,
-        {"market_weight": 1.00, "fe_models_frac": 0.5},
+        {"market_weight": 1.00, "fe_models_frac": FE_MODELS_FRAC},
     ),
     "BSS (Pct.)": (
         rank_by_bss,
@@ -520,7 +398,7 @@ def save_scenario_config(scenario, results_folder):
     return config_filename
 
 
-def run_scenario(df, scenario):
+def run_scenario(df, scenario, filter_msg=None):
     """Run a single simulation scenario and return results."""
     print(f"\n{'='*60}")
     print(f"Running scenario: {scenario['name']}")
@@ -529,6 +407,8 @@ def run_scenario(df, scenario):
     print(f"Reference model: {scenario['ref_model']}")
     print(f"Simulations: {N_SIMULATIONS}")
     print(f"Parameters: {scenario['simulation_kwargs']}")
+    if filter_msg:
+        print(filter_msg)
 
     # Save scenario configuration
     config_file = save_scenario_config(scenario, RESULTS_FOLDER)
@@ -582,8 +462,19 @@ def main():
     all_summaries = []
 
     for scenario in SIMULATION_SCENARIOS:
+        # Apply data filtering if specified
+        if "filter_func" in scenario:
+            mask = scenario["filter_func"](df)
+            df_scenario = df[mask].copy()
+            filter_msg = f"Applied filter: {len(df_scenario)} records (from {len(df)})"
+        else:
+            df_scenario = df.copy()
+            filter_msg = None
+
         # Run scenario
-        results, _ = run_scenario(df, scenario)
+        results, _ = run_scenario(
+            df=df_scenario, scenario=scenario, filter_msg=filter_msg
+        )
 
         # Save detailed results
         results_filename = f"{RESULTS_FOLDER}/simulation_output_{scenario['name']}.csv"
