@@ -30,7 +30,7 @@ from ranking_sim import (
 # =====================================================
 # GLOBAL CONFIGURATION
 # =====================================================
-N_SIMULATIONS = 2  # Number of simulations for each scenario
+N_SIMULATIONS = 1000  # Number of simulations for each scenario
 DATASET_WEIGHT = 0.5  # Weight for dataset vs market questions
 RANDOM_SEED = 20250527  # Random seed for replicability
 FE_MODELS_FRAC = 0.5  # Fraction of models used for FE estimatino
